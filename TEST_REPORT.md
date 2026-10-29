@@ -75,3 +75,7 @@ Windows11 build26200、64位CPython3.14.7；Playwright1.56.0、Pillow11.3.0、py
 最后一次最终包再次启动成功，但电脑控制工具刷新句柄重试后仍报 `GetCursorPos 拒绝访问（0x80070005）`，已停止界面输入。此次最终截图/原生关闭复核未完成；先前首次安装启动、正常原生关闭退出0，以及真实GUI扫描/切换证据仍有效。确认该解压测试界面无浏览器/课程缓存、无实际任务后，仅清理了按完整脚本路径和父子关系唯一识别的自建空闲GUI进程；该强制清理的退出1不算正常退出通过，不是应用启动失败的验收结论。没有操作系统安全设置或用户其他应用。
 
 私有证据在本机 `.local/v2_stage4`，包括matrix_verified、matrix_legacy_verified、matrix_content_verified、switch_verified、second_account、additional_verified、recovery_legacy_verified、legacy_default_verified、historical_verified、release_smoke、visual_verified、access_diagnostic、first_account_relogin等JSON。探针失败和修复前记录保留，不能当成功；只交付源码/报告，不交付课程资料。
+
+## 交付后桌面补测（2026-10-29）
+
+用户回到普通桌面后，独立解压包run.bat再次启动，最终GUI截图完整显示，默认仅图片、空课程、三项导出选项正常；原生Alt+F4关闭，实际退出码0。最终界面显示与正常退出已补验通过；前述拒绝访问和强制清理是历史失败记录，不抹除。原账号人工重登按用户选择继续列未验证。第二账号已重新恢复会话并等待人工退出，完成退出/重登前不计通过。
