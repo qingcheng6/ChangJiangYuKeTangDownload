@@ -99,13 +99,17 @@ def _atomic_image(manifest, path, record, data, stop):
             temporary.unlink()  # Only our exact .part file inside the chosen root.
 
 
-def download(context, page, origin, tasks, directory, owner, stop, emit, on_progress=None,
-             on_lesson=None, layout="legacy"):
+def verify_account(page, origin, owner, stop, emit):
     ensure_login(page, origin, stop, emit)
     current = course_catalog(page, stop)
     actual_owner = hashlib.sha256((origin + ":" + current["account"]).encode()).hexdigest()
     if actual_owner != owner:
         raise NeedsHuman("当前登录账号与课程缓存不一致，请停止并重新扫描，或切回原账号")
+
+
+def download(context, page, origin, tasks, directory, owner, stop, emit, on_progress=None,
+             on_lesson=None, layout="legacy"):
+    verify_account(page, origin, owner, stop, emit)
     result = dict(total=len(tasks), completed=0, success=0, failed=0, status="running",
                   downloaded=0, skipped=0, image_failed=0, no_images=0,
                   current_course="—", current_lesson="—")
@@ -139,6 +143,11 @@ def download(context, page, origin, tasks, directory, owner, stop, emit, on_prog
                     lesson["quiz_pages"] = extracted["pages"]
                     unique = []
                     seen = set()
+                    # Keep display occurrences separately from the V1 resource
+                    # de-duplication so a PDF never sorts filenames or loses a
+                    # repeated image displayed on another question page.
+                    lesson["pdf_sequence"] = [dict(resource_id=resource_key(r["candidates"][0]),
+                        slide_id=r["slide_id"], page=r["page"]) for r in extracted["resources"]]
                     for resource in extracted["resources"]:
                         key = resource_key(resource["candidates"][0])
                         if key not in seen:

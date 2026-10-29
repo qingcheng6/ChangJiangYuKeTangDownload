@@ -35,7 +35,7 @@ class DeliveryTests(unittest.TestCase):
 
     def test_pinned_dependency_file(self):
         self.assertEqual(pinned_requirements(ROOT / "requirements.txt"),
-                         [("playwright", "1.56.0"), ("Pillow", "11.3.0")])
+                         [("playwright", "1.56.0"), ("Pillow", "11.3.0"), ("pypdf", "6.21.4")])
 
     def test_corrupt_storage_is_not_accepted_as_a_valid_cache(self):
         path = self.directory / "bad.json"

@@ -50,13 +50,20 @@ class ScanWorker:
         self.thread.start()
         return True
 
-    def start_download(self, tasks, directory, owner):
+    def start_download(self, tasks, directory, owner, options=None):
         if self.running or not tasks:
             return False
         if self.expected_owner is not None and owner != self.expected_owner:
             self.post("error", "[习题图片] 任务账号与当前本地账号绑定不一致，请重新扫描")
             return False
-        request = dict(tasks=deepcopy(tasks), directory=Path(directory), owner=owner)
+        options = dict(options) if options is not None else {"quiz_images": True, "quiz_pdf": False}
+        if options.get("courseware_pdf") or not (options.get("quiz_images") or options.get("quiz_pdf")):
+            self.post("error", "请选择习题图片或习题PDF；课件PDF尚未实现")
+            return False
+        if options.get("quiz_pdf") and not self.account_id:
+            self.post("error", "PDF任务需要本地账号ID，请从GUI启动")
+            return False
+        request = dict(tasks=deepcopy(tasks), directory=Path(directory), owner=owner, options=options)
         self.stop_event.clear()
         self.resume_event.clear()
         self.mode = "download"
@@ -145,7 +152,7 @@ class ScanWorker:
         try:
             with TaskLedger(self.site_dir, self.account_id, self.origin) as ledger:
                 self.ledger = ledger
-                ledger.begin(request["tasks"], {"quiz_images": True})
+                ledger.begin(request["tasks"], request["options"])
                 self._run_download_impl(request)
                 ledger.interrupt("stopped" if self.stop_event.is_set() else "failed",
                                  "任务未完成，请核验登录或资源后重试")
@@ -162,16 +169,28 @@ class ScanWorker:
             self.post("resource_state", row)
             self.post("feature_progress", self.ledger.counts())
 
+    def _feature_done(self, task, feature, result):
+        row = self.ledger.feature(task, feature, result)
+        self.post("resource_state", row)
+        self.post("feature_progress", self.ledger.counts())
+
     def _run_download_impl(self, request):
         emit = lambda message: self.post("log", message)
         try:
             with open_browser(self.site_dir / "browser", emit, self.channel) as (context, page):
                 while not self.stop_event.is_set():
                     try:
-                        result = download(context, page, self.origin, request["tasks"],
-                                          request["directory"], request["owner"], self.stop_event,
-                                          emit, lambda value: self.post("download_progress", value),
-                                          on_lesson=self._lesson_done if self.ledger else None, layout=self.layout)
+                        if request["options"].get("quiz_pdf"):
+                            from .quiz_export import export_quizzes
+                            result = export_quizzes(context, page, self.origin, request,
+                                self.site_dir, self.account_id, self.layout, self.stop_event, emit,
+                                self._lesson_done, self._feature_done,
+                                lambda value: self.post("download_progress", value))
+                        else:
+                            result = download(context, page, self.origin, request["tasks"],
+                                              request["directory"], request["owner"], self.stop_event,
+                                              emit, lambda value: self.post("download_progress", value),
+                                              on_lesson=self._lesson_done if self.ledger else None, layout=self.layout)
                         self.post("download_result", result)
                         return
                     except NeedsHuman as exc:

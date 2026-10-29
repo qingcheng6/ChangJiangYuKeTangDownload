@@ -125,7 +125,7 @@ class AccountTests(unittest.TestCase):
         with TaskLedger(self.store.site_dir(row), row["id"], ORIGIN) as ledger:
             ledger.begin([task], {"quiz_images": True, "quiz_pdf": True})
             self.assertEqual(ledger.counts()["quiz_pdf"]["success"], 0)
-            self.assertEqual(ledger.counts()["quiz_pdf"]["failed"], 1)
+            self.assertEqual(ledger.counts()["quiz_pdf"]["failed"], 0)
             ledger.lesson(task, dict(status="no_images", quiz_pages=0))
             self.assertEqual(ledger.counts()["quiz_images"]["success"], 1)
         self.assertEqual(read_json(ledger.path)["account_id"], row["id"])
@@ -170,9 +170,9 @@ class AccountTests(unittest.TestCase):
             app.export_images.set(False)
             app.start_download()
             self.assertIn("至少", app.status.get())
-            app.export_quiz_pdf.set(True)
+            app.export_courseware_pdf.set(True)
             app.start_download()
-            self.assertIn("尚未实现PDF", app.status.get())
+            self.assertIn("尚未实现课件PDF", app.status.get())
             self.assertFalse(app.callback_errors)
         finally:
             release.set()

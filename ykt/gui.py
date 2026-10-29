@@ -63,7 +63,7 @@ class CourseApp:
         self.export_images = tk.BooleanVar(value=True)
         self.export_quiz_pdf = tk.BooleanVar(value=False)
         self.export_courseware_pdf = tk.BooleanVar(value=False)
-        self.feature_info = tk.StringVar(value="习题图片：待执行 · 习题PDF：待阶段2 · 课件PDF：待阶段3")
+        self.feature_info = tk.StringVar(value="习题图片：待执行 · 习题PDF：待执行 · 课件PDF：待阶段3")
         self._build()
         self._refresh_accounts()
         self._load_settings()
@@ -174,7 +174,7 @@ class CourseApp:
         options.grid(row=6, column=0, sticky="ew", pady=(0, 6))
         self.export_checks = []
         for label, variable in (("下载习题图片", self.export_images),
-                                ("习题合并PDF（待阶段2）", self.export_quiz_pdf),
+                                ("习题合并PDF", self.export_quiz_pdf),
                                 ("课件导出PDF（待阶段3）", self.export_courseware_pdf)):
             check = ttk.Checkbutton(options, text=label, variable=variable, command=self._update_controls)
             check.pack(side="left", padx=(0, 12))
@@ -277,7 +277,7 @@ class CourseApp:
         self.save_dir.set("")
         self.current_course.set("当前课程：—")
         self.current_lesson.set("当前课时：—")
-        self.feature_info.set("习题图片：待执行 · 习题PDF：待阶段2 · 课件PDF：待阶段3")
+        self.feature_info.set("习题图片：待执行 · 习题PDF：待执行 · 课件PDF：待阶段3")
         for var in self.metrics.values():
             var.set(0)
         self.progress.configure(value=0, maximum=1)
@@ -575,8 +575,8 @@ class CourseApp:
         if not any((self.export_images.get(), self.export_quiz_pdf.get(), self.export_courseware_pdf.get())):
             self.status.set("至少选择一项导出功能")
             return
-        if self.export_quiz_pdf.get() or self.export_courseware_pdf.get():
-            self.status.set("本阶段尚未实现PDF，请取消PDF选项后下载习题图片")
+        if self.export_courseware_pdf.get():
+            self.status.set("本阶段尚未实现课件PDF，请取消课件PDF选项")
             return
         tasks = self.selection.tasks()
         if not tasks or not self.catalog or not self.catalog.get("owner_fingerprint"):
@@ -591,13 +591,15 @@ class CourseApp:
         self.progress.configure(value=0, maximum=len(tasks))
         self.current_course.set("当前课程：等待账号核验")
         self.current_lesson.set("当前课时：—")
-        self.task_kind.set("任务类型：图片下载（按课时计数）")
+        self.task_kind.set("任务类型：习题导出（按课时计数）")
         self.catalog_info.set("课程目录来自缓存，下载时逐课时核验访问权限")
         self.waiting_human = False
         self.status.set("下载中；正在核验登录账号与所选课时")
-        self._append_log("开始处理 {} 个课时；只保存习题区域图片".format(len(tasks)))
+        self._append_log("开始处理 {} 个课时；图片{}，习题PDF{}".format(len(tasks),
+            "保留" if self.export_images.get() else "仅临时用于PDF", "开启" if self.export_quiz_pdf.get() else "关闭"))
         directory = self.accounts.image_directory(self.account, self.save_dir.get())
-        self.worker.start_download(tasks, directory, self.catalog["owner_fingerprint"])
+        self.worker.start_download(tasks, directory, self.catalog["owner_fingerprint"], options=dict(
+            quiz_images=self.export_images.get(), quiz_pdf=self.export_quiz_pdf.get()))
         self._update_controls()
 
     def resume(self):
@@ -632,7 +634,8 @@ class CourseApp:
         try:
             rows = unfinished(self.accounts.image_directory(self.account, self.save_dir.get()),
                               self.catalog["owner_fingerprint"], self.worker.origin,
-                              layout=self.worker.layout)
+                              layout=self.worker.layout, features=[f for f, enabled in (
+                                  ("quiz_images", self.export_images.get()), ("quiz_pdf", self.export_quiz_pdf.get())) if enabled])
         except FileNotFoundError:
             self.status.set("当前目录还没有此账号的下载任务清单")
             return
@@ -678,7 +681,10 @@ class CourseApp:
         if kind == "account_deleted":
             self.account_deleted = True
         elif kind == "log":
-            self._append_log(("[习题图片] " if self.worker.mode == "download" else "[课程扫描] ") + data)
+            prefix = "[课程扫描] "
+            if self.worker.mode == "download":
+                prefix = "[习题导出] " if self.export_quiz_pdf.get() else "[习题图片] "
+            self._append_log(prefix + data)
         elif kind == "resource_state":
             key = (data["course_id"], data["lesson_id"], data["feature"])
             self.resources[key] = data["resource_state"]
@@ -690,8 +696,10 @@ class CourseApp:
                     data["course_name"], data["lesson_name"], data.get("error") or "处理失败"))
         elif kind == "feature_progress":
             c = data["quiz_images"]
-            self.feature_info.set("习题图片：完成{}/{} 成功{} 失败{} · 习题PDF：未实现 · 课件PDF：未实现".format(
-                c["completed"], c["total"], c["success"], c["failed"]))
+            p = data["quiz_pdf"]
+            self.feature_info.set("习题图片：{}/{} 成功{} 失败{} · 习题PDF：{}/{} 成功{} 失败{} · 课件PDF：未实现".format(
+                c["completed"], c["total"], c["success"], c["failed"],
+                p["completed"], p["total"], p["success"], p["failed"]))
         elif kind == "progress":
             self._display_catalog(data["result"])
             for key, var in self.metrics.items():
@@ -707,13 +715,15 @@ class CourseApp:
                 var.set(data[key])
             self.progress.configure(maximum=max(data["total"], 1), value=data["completed"])
             self.current_course.set("当前课程：" + data["current_course"])
-            self.current_lesson.set("当前课时：{}（累计保存 {}，校验跳过 {}，图片失败 {}）".format(
-                data["current_lesson"], data["downloaded"], data["skipped"], data["image_failed"]))
+            label = "临时图片写入" if self.export_quiz_pdf.get() and not self.export_images.get() else "图片保存"
+            self.current_lesson.set("当前课时：{}（{} {}，校验跳过 {}，图片失败 {}）".format(
+                data["current_lesson"], label, data["downloaded"], data["skipped"], data["image_failed"]))
         elif kind == "download_result":
             self.status.set({"complete": "下载处理完成", "partial": "下载结束，部分课时失败",
                              "stopped": "下载已停止"}.get(data["status"], "下载任务结束"))
-            self._append_log("{}：保存 {} 张，校验跳过 {} 张，图片失败 {} 张，无图片课时 {} 个".format(
-                self.status.get(), data["downloaded"], data["skipped"], data["image_failed"], data["no_images"]))
+            label = "临时处理图片" if self.export_quiz_pdf.get() and not self.export_images.get() else "保存图片"
+            self._append_log("{}：{} {} 张，校验跳过 {} 张，图片失败 {} 张，无图片课时 {} 个".format(
+                self.status.get(), label, data["downloaded"], data["skipped"], data["image_failed"], data["no_images"]))
         elif kind == "needs_human":
             self.waiting_human = True
             self.status.set("已暂停：请在浏览器人工处理，再点击“人工处理完成，继续”")
@@ -789,7 +799,10 @@ class CourseApp:
         self.root.after(80, self._poll)
 
     def _resource_label(self, cid, lid, feature):
-        return RESOURCE_LABELS.get(self.resources.get((cid, lid, feature), "unknown"), "未知")
+        state = self.resources.get((cid, lid, feature), "unknown")
+        if feature == "quiz_images" and state == "unknown":
+            state = self.resources.get((cid, lid, "quiz_pdf"), "unknown")
+        return RESOURCE_LABELS.get(state, "未知")
 
     def close(self):
         self._assert_ui()

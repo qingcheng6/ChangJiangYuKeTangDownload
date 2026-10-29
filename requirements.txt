@@ -2,3 +2,5 @@
 playwright==1.56.0
 # Verify image content/format and reject truncated files (Python >=3.9).
 Pillow==11.3.0
+# Pure Python PDF writer/parser; supports Python 3.9+.
+pypdf==6.21.4
