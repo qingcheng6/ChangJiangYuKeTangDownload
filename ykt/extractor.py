@@ -111,7 +111,10 @@ def extract_lesson(page, origin, task, stop, emit):
                 # A single shared page retry budget covers navigation, rendering
                 # and filtering, rather than nesting two independent budgets.
                 navigate(page, target, stop, emit, retries=0)
-                wait_condition(page, "() => !!document.querySelector('iframe.lesson-report-mobile')", stop)
+                # An attached iframe can still be about:blank. Wait for its real
+                # address before judging authorization; model/DOM readiness is
+                # checked separately below. Foreign origins are still rejected.
+                wait_condition(page, S.REPORT_FRAME_READY, stop)
                 frame = page.locator(S.REPORT_IFRAME).element_handle().content_frame()
                 if frame is None or urlsplit(frame.url).hostname != urlsplit(origin).hostname:
                     raise NeedsHuman("课时报告框架尚未就绪或跳转，请人工检查")

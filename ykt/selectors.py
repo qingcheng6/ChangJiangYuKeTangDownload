@@ -94,6 +94,12 @@ COURSE_RENDERED = """expected => {
 # owned by Yuketang; this app does not create/embed a page or bypass its access.
 REPORT_PATH = "/v2/web/student-lesson-report/{course_id}/{courseware_id}/{lesson_id}"
 REPORT_IFRAME = "iframe.lesson-report-mobile"
+REPORT_FRAME_READY = """() => {
+ const e=document.querySelector('iframe.lesson-report-mobile');
+ if(!e) return false;
+ try {const url=e.contentWindow?.location.href;return !!url && url!=='about:blank';}
+ catch (_) {return true;} // Let the caller explicitly reject a foreign frame URL.
+}"""
 REPORT_VIEW = ".courseware-cmp-wrap"
 QUIZ_TABS = ".tab-wrap"
 QUIZ_TAB_NAME = "习题"
