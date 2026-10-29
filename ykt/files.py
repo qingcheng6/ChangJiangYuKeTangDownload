@@ -65,10 +65,13 @@ def image_info(data):
 
 
 class Manifest:
-    def __init__(self, directory, owner, origin):
+    def __init__(self, directory, owner, origin, layout="legacy"):
         selected = Path(directory).resolve()
-        self.root = (selected / "雨课堂习题下载").resolve()
-        if self.root.parent != selected:
+        if layout not in ("legacy", "v2"):
+            raise FileProblem("未知的输出布局")
+        self.layout = layout
+        self.root = (selected / "雨课堂习题下载").resolve() if layout == "legacy" else selected
+        if layout == "legacy" and self.root.parent != selected:
             raise FileProblem("下载目录指向外部位置，请选择其他保存目录")
         if not re.fullmatch(r"[0-9a-f]{64}", owner):
             raise FileProblem("账号标识无效，请重新扫描课程")
@@ -224,6 +227,8 @@ class Manifest:
 
     def output_path(self, task, lesson, record, info, order, resource_id):
         parent = self.directory_for(task, lesson)
+        if self.layout == "v2":
+            parent = parent / "习题图片"
         existing = record.get("path")
         if existing and self.resolve(existing).suffix.lower() == info["extension"]:
             return self.resolve(existing)

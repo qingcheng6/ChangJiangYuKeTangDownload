@@ -11,10 +11,12 @@ from .browser import NeedsHuman, Stopped, open_browser
 from .scanner import scan
 from .downloader import download
 from .files import FileProblem
+from .tasks import TaskLedger
 
 
 class ScanWorker:
-    def __init__(self, origin: str, site_dir: Path, channel=None):
+    def __init__(self, origin: str, site_dir: Path, channel=None, account_id=None, expected_owner=None,
+                 layout="legacy"):
         self.origin = origin
         self.site_dir = site_dir
         self.channel = channel
@@ -24,6 +26,10 @@ class ScanWorker:
         self.thread = None
         self.diagnostic = None
         self.mode = "scan"
+        self.account_id = account_id
+        self.expected_owner = expected_owner
+        self.ledger = None
+        self.layout = layout
 
     @property
     def running(self):
@@ -47,6 +53,9 @@ class ScanWorker:
     def start_download(self, tasks, directory, owner):
         if self.running or not tasks:
             return False
+        if self.expected_owner is not None and owner != self.expected_owner:
+            self.post("error", "[习题图片] 任务账号与当前本地账号绑定不一致，请重新扫描")
+            return False
         request = dict(tasks=deepcopy(tasks), directory=Path(directory), owner=owner)
         self.stop_event.clear()
         self.resume_event.clear()
@@ -60,6 +69,24 @@ class ScanWorker:
         self.stop_event.set()
         self.resume_event.set()
 
+    def start_delete(self, root, account_id):
+        if self.running:
+            return False
+        self.stop_event.clear()
+        self.mode = "account_delete"
+        def remove():
+            from .accounts import Accounts
+            try:
+                Accounts(root, self.origin).delete(account_id)
+                self.post("account_deleted", account_id)
+            except Exception:
+                self.post("error", "删除未完成：资料可能正在使用或路径异常；下载文件未删除")
+            finally:
+                self.post("finished", None)
+        self.thread = Thread(target=remove, name="ykt-account-delete", daemon=False)
+        self.thread.start()
+        return True
+
     def resume(self):
         self.resume_event.set()
 
@@ -72,7 +99,8 @@ class ScanWorker:
                         result = scan(
                             page, self.origin, self.site_dir / "courses.json",
                             self.stop_event, emit,
-                            on_progress=lambda value: self.post("progress", value))
+                            on_progress=lambda value: self.post("progress", value),
+                            expected_owner=self.expected_owner)
                         self.post("result", result)
                         return
                     except NeedsHuman as exc:
@@ -111,6 +139,30 @@ class ScanWorker:
             self.post("finished", None)
 
     def _run_download(self, request):
+        if self.account_id is None:
+            self._run_download_impl(request)
+            return
+        try:
+            with TaskLedger(self.site_dir, self.account_id, self.origin) as ledger:
+                self.ledger = ledger
+                ledger.begin(request["tasks"], {"quiz_images": True})
+                self._run_download_impl(request)
+                ledger.interrupt("stopped" if self.stop_event.is_set() else "failed",
+                                 "任务未完成，请核验登录或资源后重试")
+                self.post("feature_progress", ledger.counts())
+        except Exception as exc:
+            self.post("error", "[任务状态] 无法保存或读取（{}），原文件已保留".format(type(exc).__name__))
+            self.post("finished", None)
+        finally:
+            self.ledger = None
+
+    def _lesson_done(self, task, lesson):
+        if self.ledger is not None:
+            row = self.ledger.lesson(task, lesson)
+            self.post("resource_state", row)
+            self.post("feature_progress", self.ledger.counts())
+
+    def _run_download_impl(self, request):
         emit = lambda message: self.post("log", message)
         try:
             with open_browser(self.site_dir / "browser", emit, self.channel) as (context, page):
@@ -118,7 +170,8 @@ class ScanWorker:
                     try:
                         result = download(context, page, self.origin, request["tasks"],
                                           request["directory"], request["owner"], self.stop_event,
-                                          emit, lambda value: self.post("download_progress", value))
+                                          emit, lambda value: self.post("download_progress", value),
+                                          on_lesson=self._lesson_done if self.ledger else None, layout=self.layout)
                         self.post("download_result", result)
                         return
                     except NeedsHuman as exc:

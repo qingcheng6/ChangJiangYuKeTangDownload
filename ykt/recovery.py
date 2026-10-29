@@ -3,8 +3,8 @@
 from .files import Manifest
 
 
-def unfinished(directory, owner, origin):
-    manifest = Manifest(directory, owner, origin)
+def unfinished(directory, owner, origin, layout="legacy"):
+    manifest = Manifest(directory, owner, origin, layout=layout)
     data = manifest.read_existing()
     results = []
     for lesson in data["lessons"].values():

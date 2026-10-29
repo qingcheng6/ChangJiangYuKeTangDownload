@@ -9,6 +9,7 @@ from ykt.gui import CourseApp
 from ykt.selection import CourseSelection
 from ykt.storage import read_json
 from ykt.worker import ScanWorker
+from ykt.accounts import Accounts
 
 ROOT = Path(__file__).resolve().parents[1]
 SITE = ROOT / ".local" / "changjiang.yuketang.cn"
@@ -80,7 +81,11 @@ class TkTests(unittest.TestCase):
     def setUp(self):
         self.root = tk.Tk()
         self.root.withdraw()
-        self.app = CourseApp(self.root, ROOT)
+        # The V1 fixture belongs to the migrated legacy account, regardless of
+        # which account a user currently selected in another open GUI.
+        accounts = Accounts(ROOT, "https://changjiang.yuketang.cn")
+        legacy = next(row for row in accounts.rows if row["legacy"])
+        self.app = CourseApp(self.root, ROOT, account_id=legacy["id"])
         self.root.update_idletasks()
 
     def tearDown(self):

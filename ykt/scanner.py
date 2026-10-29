@@ -165,10 +165,13 @@ def scan_lessons(page, course, origin: str, stop: Event, emit: Callable[[str], N
 
 
 def scan(page, origin: str, cache: Path, stop: Event, emit: Callable[[str], None],
-         login_timeout_ms=300000, on_progress=None):
+         login_timeout_ms=300000, on_progress=None, expected_owner=None):
     ensure_login(page, origin, stop, emit, timeout_ms=login_timeout_ms)
     emit("正在读取“我听的课”目录")
     catalog = course_catalog(page, stop)
+    actual_owner = hashlib.sha256((origin + ":" + catalog["account"]).encode()).hexdigest()
+    if expected_owner is not None and actual_owner != expected_owner:
+        raise NeedsHuman("该本地账号资料中登录了其他账号，请切回原账号或新增独立账号；旧缓存未改动")
     regular_count = len(catalog["courses"])
     emit("正在读取归档课程目录")
     catalog["courses"].extend(archived_catalog(page, stop))

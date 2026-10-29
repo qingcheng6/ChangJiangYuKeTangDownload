@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 from ykt.browser import NeedsHuman, Stopped, ensure_login, open_browser
 from ykt.scanner import scan
 from ykt.storage import read_json
+from ykt.accounts import Accounts
 
 ROOT = Path(__file__).resolve().parent
 
@@ -22,6 +23,7 @@ def main():
     parser = argparse.ArgumentParser(description="雨课堂课程扫描与习题图片下载工具")
     parser.add_argument("--origin", default="https://changjiang.yuketang.cn")
     parser.add_argument("--channel", choices=("chrome", "msedge"))
+    parser.add_argument("--account", help="本地账号ID；默认使用界面最后选择的账号")
     parser.add_argument("--login-only", action="store_true")
     parser.add_argument("--cached", action="store_true", help="仅查看缓存摘要，不验证登录")
     parser.add_argument("--gui", action="store_true", help="打开桌面界面")
@@ -34,16 +36,30 @@ def main():
                                        parts.hostname.endswith(".yuketang.cn"))):
         parser.error("入口应为雨课堂 HTTPS 域名，不可包含路径、查询或凭证")
     origin = "https://" + parts.netloc
-    site_dir = ROOT / ".local" / parts.hostname
-    cache = site_dir / "courses.json"
+    try:
+        accounts = Accounts(ROOT, origin)
+    except (ValueError, OSError):
+        emit("账号配置无法读取，原文件保留；请检查本地配置或恢复备份")
+        return 1
+    account = accounts.get(args.account) if args.account else accounts.get()
+    if account is None and not args.gui:
+        parser.error("请先通过GUI添加或选择本地账号")
+    site_dir = accounts.site_dir(account) if account else None
+    cache = site_dir / "courses.json" if site_dir else None
     if args.gui:
         if args.cached or args.login_only:
             parser.error("--gui 不与 --cached 或 --login-only 同时使用")
         from ykt.gui import run_gui
+        if args.account:
+            accounts.activate(args.account)
         run_gui(ROOT, origin, args.channel)
         return 0
     if args.cached:
-        result = read_json(cache)
+        try:
+            result = read_json(cache)
+        except (FileNotFoundError, ValueError, OSError):
+            emit("当前账号没有可读课程缓存，请在GUI选择该账号并扫描")
+            return 2
         emit("本地缓存（未重新验证）：{}，{} 门课程，{} 个课时".format(
             result["status"], len(result["courses"]),
             sum(len(x["lessons"]) for x in result["courses"])))
@@ -59,7 +75,9 @@ def main():
                         ensure_login(page, origin, stop, emit, args.login_timeout * 1000)
                         return 0
                     result = scan(page, origin, cache, stop, emit,
-                                  login_timeout_ms=args.login_timeout * 1000)
+                                  login_timeout_ms=args.login_timeout * 1000,
+                                  expected_owner=account.get("owner"))
+                    accounts.bind(account["id"], result["owner_fingerprint"])
                     emit("扫描结果：{}；课程 {}，课时 {}".format(
                         result["status"], len(result["courses"]),
                         sum(len(x["lessons"]) for x in result["courses"])))

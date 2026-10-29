@@ -99,7 +99,8 @@ def _atomic_image(manifest, path, record, data, stop):
             temporary.unlink()  # Only our exact .part file inside the chosen root.
 
 
-def download(context, page, origin, tasks, directory, owner, stop, emit, on_progress=None):
+def download(context, page, origin, tasks, directory, owner, stop, emit, on_progress=None,
+             on_lesson=None, layout="legacy"):
     ensure_login(page, origin, stop, emit)
     current = course_catalog(page, stop)
     actual_owner = hashlib.sha256((origin + ":" + current["account"]).encode()).hexdigest()
@@ -113,17 +114,22 @@ def download(context, page, origin, tasks, directory, owner, stop, emit, on_prog
         if on_progress is not None:
             on_progress(dict(result))
 
-    with Manifest(directory, owner, origin) as manifest:
+    with Manifest(directory, owner, origin, layout=layout) as manifest:
+        started_tasks = set()
         report()
         try:
             for task in tasks:
                 check_stop(stop)
                 lesson = manifest.lesson(task)
+                started_tasks.add(task["course_id"] + ":" + task["lesson"]["id"] + ":" + task["lesson"]["courseware_id"])
                 lesson["status"] = "running"
                 lesson.pop("error", None)
+                lesson.pop("error_type", None)
                 result["current_course"] = task["course_name"]
                 result["current_lesson"] = task["lesson"]["name"]
                 manifest.save()
+                if on_lesson is not None:
+                    on_lesson(task, dict(lesson))
                 report()
                 emit("处理课时：{} / {}".format(" ".join(task["course_name"].split()),
                                                " ".join(task["lesson"]["name"].split())))
@@ -212,6 +218,7 @@ def download(context, page, origin, tasks, directory, owner, stop, emit, on_prog
                 except NeedsHuman as exc:
                     lesson["status"] = "needs_human"
                     lesson["error"] = str(exc)
+                    lesson["error_type"] = type(exc).__name__
                     manifest.save()
                     raise
                 except Stopped:
@@ -222,14 +229,18 @@ def download(context, page, origin, tasks, directory, owner, stop, emit, on_prog
                     if page.is_closed():
                         lesson["status"] = "stopped"
                         lesson["error"] = "浏览器已关闭，课时尚未完成"
+                        lesson["error_type"] = type(exc).__name__
                         manifest.save()
                         raise NeedsHuman("浏览器已关闭，请重新启动下载") from None
                     lesson["status"] = "failed"
                     lesson["error"] = str(exc) if isinstance(exc, (PageChanged, FileProblem)) else "习题页面结构或资源提取异常"
+                    lesson["error_type"] = type(exc).__name__
                     result["failed"] += 1
                     emit("本课时失败：{}；继续下一课时".format(lesson["error"]))
                 result["completed"] += 1
                 manifest.save()
+                if on_lesson is not None:
+                    on_lesson(task, dict(lesson))
                 report()
                 if stop.wait(0.8):
                     raise Stopped()
@@ -241,6 +252,11 @@ def download(context, page, origin, tasks, directory, owner, stop, emit, on_prog
             result["status"] = "needs_human"
             raise
         finally:
+            if on_lesson is not None:
+                for task in tasks:
+                    key = task["course_id"] + ":" + task["lesson"]["id"] + ":" + task["lesson"]["courseware_id"]
+                    if key in started_tasks:
+                        on_lesson(task, dict(manifest.data["lessons"][key]))
             manifest.data["last_run"] = dict(result)
             manifest.save()
             report()

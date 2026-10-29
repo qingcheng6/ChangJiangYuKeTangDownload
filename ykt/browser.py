@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlsplit
 from playwright.sync_api import Error, TimeoutError, sync_playwright
 
 from . import selectors as S
+from .locking import LocalLock, BusyError
 
 
 class Stopped(Exception):
@@ -51,6 +52,20 @@ def wait_condition(page, expression, stop: Event, timeout_ms=30000, arg=None):
 
 @contextmanager
 def open_browser(profile: Path, emit: Callable[[str], None], channel=None):
+    try:
+        lease = LocalLock(Path(profile).parent / ".browser.lock")
+        lease.__enter__()
+    except BusyError:
+        raise NeedsHuman("该账号会话已被其他实例占用，请关闭该实例后重试") from None
+    try:
+        with _open_browser(profile, emit, channel) as result:
+            yield result
+    finally:
+        lease.__exit__(None, None, None)
+
+
+@contextmanager
+def _open_browser(profile: Path, emit: Callable[[str], None], channel=None):
     with sync_playwright() as pw:
         kwargs = dict(headless=False, viewport={"width": 1280, "height": 850})
         if channel:
