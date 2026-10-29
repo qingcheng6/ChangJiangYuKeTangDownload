@@ -79,7 +79,7 @@ def _state(frame):
     return frame.locator(S.REPORT_VIEW).evaluate(S.REPORT_STATE)
 
 
-def _wait_state(page, frame, watch, course_id, stop, selected=False):
+def _wait_state(page, frame, watch, course_id, stop, selected=False, all_slides=False):
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         check_stop(stop)
@@ -88,7 +88,10 @@ def _wait_state(page, frame, watch, course_id, stop, selected=False):
         if (state and watch.detail and watch.info == (watch.lesson_id, course_id) and
                 watch.count is not None and state["lesson_id"] == watch.lesson_id and
                 state["course_id"] == course_id and state["all"] == watch.count):
-            if not selected or (state["selected"] == 1 and state["shown"] == watch.quiz_count and
+            if all_slides:
+                if state["selected"] == 0 and state["shown"] == watch.count:
+                    return state
+            elif not selected or (state["selected"] == 1 and state["shown"] == watch.quiz_count and
                                 {s["slide_id"] for s in state["slides"]} == watch.quiz_ids):
                 return state
         if stop.wait(0.1):

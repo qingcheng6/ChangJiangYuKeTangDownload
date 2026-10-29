@@ -118,7 +118,8 @@ REPORT_STATE = """e => {
   all:all.length, shown:shown.length, selected:val(s.lessonSelectTab),
   sent:val(s.isSentProblem), has_problem:val(s.lessonStats)?.problemStatistics?.hasProblem,
   slides:shown.map(x=>({slide_id:String(x.id),page:x.index,dt:x.dt,
-      sent:x.sendProblem,has_problem:x.hasProblem,cover:x.cover,visible:x.visible,kind:x.type}))};
+      sent:x.sendProblem,has_problem:x.hasProblem,cover:x.cover,visible:x.visible,kind:x.type,
+      presentation_id:x.presentationId==null?'':String(x.presentationId)}))};
 }"""
 
 # Generic image attributes are examined only inside the verified quiz image
@@ -165,3 +166,14 @@ COURSEWARE_PREVIEW_IDS = """e => {
 }"""
 
 COURSEWARE_UNSUPPORTED = "canvas,svg,video,audio,iframe"
+
+# Verified 2026-10-30: captures have no timeline id/visible/index, while their
+# swiper ids are regenerated and may collide. Match them by their actual dt.
+COURSEWARE_TAB_NAME = "全部"
+COURSEWARE_PREVIEW_DATA = """e => {
+ const x=e.__vue__?._setupState?.swiperList;
+ const rows=x?.__v_isRef?x.value:x;
+ return Array.isArray(rows)?rows.map(s=>({slide_id:String(s.id),kind:s.type,
+   presentation_id:s.presentationId==null?'':String(s.presentationId),
+   page:s.index,dt:s.dt,visible:s.visible})):null;
+}"""
