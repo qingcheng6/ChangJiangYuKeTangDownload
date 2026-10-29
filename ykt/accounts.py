@@ -130,7 +130,9 @@ class Accounts:
                 row["owner"] = owner
                 write_json(self.path, self.data)
 
-    def image_directory(self, row, selected):
+    def image_directory(self, row, selected, layout=None):
+        if layout == "flat":
+            return Path(selected)
         if row["legacy"]:
             return Path(selected)
         # V2 layout is selected explicitly; the legacy default remains unchanged.

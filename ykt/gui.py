@@ -74,7 +74,7 @@ class CourseApp:
         return ScanWorker(self.origin, self.site_dir, self.channel,
                           account_id=self.account["id"] if self.account else None,
                           expected_owner=self.account.get("owner") if self.account else None,
-                          layout="legacy" if not self.account or self.account["legacy"] else "v2")
+                          layout="flat")
 
     def _assert_ui(self):
         if get_ident() != self.ui_thread:
@@ -595,7 +595,7 @@ class CourseApp:
         self._append_log("开始处理 {} 个课时；图片{}，习题PDF{}，课件PDF{}".format(len(tasks),
             "保留" if self.export_images.get() else "仅临时用于PDF" if self.export_quiz_pdf.get() else "不导出", "开启" if self.export_quiz_pdf.get() else "关闭",
             "开启（仅报告可访问静态页）" if self.export_courseware_pdf.get() else "关闭"))
-        directory = self.accounts.image_directory(self.account, self.save_dir.get())
+        directory = self.accounts.image_directory(self.account, self.save_dir.get(), layout=self.worker.layout)
         self.worker.start_download(tasks, directory, self.catalog["owner_fingerprint"], options=dict(
             quiz_images=self.export_images.get(), quiz_pdf=self.export_quiz_pdf.get(),
             courseware_pdf=self.export_courseware_pdf.get()))
@@ -631,7 +631,7 @@ class CourseApp:
             self.status.set("请先读取课程目录并选择原保存目录")
             return
         try:
-            rows = unfinished(self.accounts.image_directory(self.account, self.save_dir.get()),
+            rows = unfinished(self.accounts.image_directory(self.account, self.save_dir.get(), layout=self.worker.layout),
                               self.catalog["owner_fingerprint"], self.worker.origin,
                               layout=self.worker.layout, features=[f for f, enabled in (
                                   ("quiz_images", self.export_images.get()), ("quiz_pdf", self.export_quiz_pdf.get()),

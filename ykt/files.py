@@ -67,7 +67,7 @@ def image_info(data):
 class Manifest:
     def __init__(self, directory, owner, origin, layout="legacy"):
         selected = Path(directory).resolve()
-        if layout not in ("legacy", "v2"):
+        if layout not in ("legacy", "v2", "flat"):
             raise FileProblem("未知的输出布局")
         self.layout = layout
         self.root = (selected / "雨课堂习题下载").resolve() if layout == "legacy" else selected
@@ -81,7 +81,10 @@ class Manifest:
         self.budget = min(60, (235 - units(self.root) - 40) // 2)
         if self.budget < 14:
             raise FileProblem("保存目录路径过长，请选择较短的保存目录")
-        self.path = self.root / ("任务清单_" + owner[:12] + ".json")
+        # A new index keeps V1/V2 paths and completion records untouched, even
+        # when the user selects a directory which already contains old output.
+        prefix = "任务清单_v21_" if layout == "flat" else "任务清单_"
+        self.path = self.root / (prefix + owner[:12] + ".json")
         self.lock = None
         self.data = None
 
@@ -109,6 +112,8 @@ class Manifest:
             else:
                 self.data = dict(schema_version=1, owner=self.owner, origin=self.origin,
                                  courses={}, lessons={})
+                if self.layout == "flat":
+                    self.data["layout"] = "flat_v21"
             return self
         except Exception:
             self.__exit__(None, None, None)
@@ -126,6 +131,8 @@ class Manifest:
         """Read-only validation; a damaged manifest is never silently replaced."""
         try:
             data = read_json(self.path)
+            if self.layout == "flat" and data.get("layout") != "flat_v21":
+                raise ValueError()
             if (data.get("owner") != self.owner or data.get("origin") != self.origin or
                     not isinstance(data.get("lessons"), dict) or not isinstance(data.get("courses"), dict)):
                 raise ValueError()
@@ -204,11 +211,23 @@ class Manifest:
         if cid not in courses:
             courses[cid] = self._component(self.root, task["course_name"], cid, courses.values())
         parent = self.resolve(courses[cid])
+        if self.layout == "flat":
+            parent = self.resolve(str(Path(courses[cid]) / "习题图片"))
         used = [Path(item["directory"]).name for item in self.data["lessons"].values()
-                if item.get("directory") and str(Path(item["directory"]).parent) == courses[cid]]
-        name = self._component(parent, task["lesson"]["name"], task["lesson"]["id"], used)
-        lesson["directory"] = str(Path(courses[cid]) / name)
+                if item.get("directory") and Path(item["directory"]).parent == parent.relative_to(self.root)]
+        identity = task["lesson"]["id"]
+        if self.layout == "flat":
+            identity += ":" + task["lesson"]["courseware_id"]
+        name = self._component(parent, task["lesson"]["name"], identity, used)
+        lesson["directory"] = str(parent.relative_to(self.root) / name)
         return self.resolve(lesson["directory"])
+
+    def pdf_directory_for(self, task, lesson):
+        """Reserve the shared lesson name without creating any image folders."""
+        directory = self.directory_for(task, lesson)
+        if self.layout == "flat":
+            return self.resolve(self.data["courses"][task["course_id"]])
+        return directory
 
     def verified(self, record):
         if record.get("status") not in ("complete", "duplicate"):

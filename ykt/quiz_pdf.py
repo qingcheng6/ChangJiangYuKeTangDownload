@@ -160,16 +160,19 @@ def ordered_sources(manifest, lesson):
 
 
 def pdf_path(manifest, task, lesson, metadata, suffix="_习题合集.pdf"):
-    parent = manifest.directory_for(task, lesson)
+    parent = manifest.pdf_directory_for(task, lesson)
     if metadata.get("path"):
         existing = manifest.resolve(metadata["path"])
         if existing.parent != parent or existing.suffix.lower() != ".pdf":
-            raise FileProblem("PDF任务路径与课时目录不匹配")
+            raise FileProblem("PDF任务路径与归档目录不匹配")
         return existing
     budget = min(80, 234 - units(parent) - units(suffix))
     if budget < 10:
         raise FileProblem("PDF文件路径过长，请选择较短保存目录")
-    base = safe_name(task["lesson"]["name"], budget)
+    # The reserved lesson component also distinguishes same-name PDF-only
+    # lessons, for which no image directory will ever be created.
+    label = Path(lesson["directory"]).name if manifest.layout == "flat" else task["lesson"]["name"]
+    base = safe_name(label, budget)
     candidate = parent / (base + suffix)
     number = 0
     while candidate.exists():
