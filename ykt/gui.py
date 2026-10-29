@@ -63,7 +63,7 @@ class CourseApp:
         self.export_images = tk.BooleanVar(value=True)
         self.export_quiz_pdf = tk.BooleanVar(value=False)
         self.export_courseware_pdf = tk.BooleanVar(value=False)
-        self.feature_info = tk.StringVar(value="习题图片：待执行 · 习题PDF：待执行 · 课件PDF：待阶段3")
+        self.feature_info = tk.StringVar(value="习题图片：待执行 · 习题PDF：待执行 · 课件PDF：待执行")
         self._build()
         self._refresh_accounts()
         self._load_settings()
@@ -175,7 +175,7 @@ class CourseApp:
         self.export_checks = []
         for label, variable in (("下载习题图片", self.export_images),
                                 ("习题合并PDF", self.export_quiz_pdf),
-                                ("课件导出PDF（待阶段3）", self.export_courseware_pdf)):
+                                ("课件导出PDF", self.export_courseware_pdf)):
             check = ttk.Checkbutton(options, text=label, variable=variable, command=self._update_controls)
             check.pack(side="left", padx=(0, 12))
             self.export_checks.append(check)
@@ -277,7 +277,7 @@ class CourseApp:
         self.save_dir.set("")
         self.current_course.set("当前课程：—")
         self.current_lesson.set("当前课时：—")
-        self.feature_info.set("习题图片：待执行 · 习题PDF：待执行 · 课件PDF：待阶段3")
+        self.feature_info.set("习题图片：待执行 · 习题PDF：待执行 · 课件PDF：待执行")
         for var in self.metrics.values():
             var.set(0)
         self.progress.configure(value=0, maximum=1)
@@ -575,9 +575,6 @@ class CourseApp:
         if not any((self.export_images.get(), self.export_quiz_pdf.get(), self.export_courseware_pdf.get())):
             self.status.set("至少选择一项导出功能")
             return
-        if self.export_courseware_pdf.get():
-            self.status.set("本阶段尚未实现课件PDF，请取消课件PDF选项")
-            return
         tasks = self.selection.tasks()
         if not tasks or not self.catalog or not self.catalog.get("owner_fingerprint"):
             self.status.set("请先扫描或读取缓存，并勾选目标课时")
@@ -591,15 +588,17 @@ class CourseApp:
         self.progress.configure(value=0, maximum=len(tasks))
         self.current_course.set("当前课程：等待账号核验")
         self.current_lesson.set("当前课时：—")
-        self.task_kind.set("任务类型：习题导出（按课时计数）")
+        self.task_kind.set("任务类型：资源导出（按课时计数）")
         self.catalog_info.set("课程目录来自缓存，下载时逐课时核验访问权限")
         self.waiting_human = False
         self.status.set("下载中；正在核验登录账号与所选课时")
-        self._append_log("开始处理 {} 个课时；图片{}，习题PDF{}".format(len(tasks),
-            "保留" if self.export_images.get() else "仅临时用于PDF", "开启" if self.export_quiz_pdf.get() else "关闭"))
+        self._append_log("开始处理 {} 个课时；图片{}，习题PDF{}，课件PDF{}".format(len(tasks),
+            "保留" if self.export_images.get() else "仅临时用于PDF" if self.export_quiz_pdf.get() else "不导出", "开启" if self.export_quiz_pdf.get() else "关闭",
+            "开启（仅报告可访问静态页）" if self.export_courseware_pdf.get() else "关闭"))
         directory = self.accounts.image_directory(self.account, self.save_dir.get())
         self.worker.start_download(tasks, directory, self.catalog["owner_fingerprint"], options=dict(
-            quiz_images=self.export_images.get(), quiz_pdf=self.export_quiz_pdf.get()))
+            quiz_images=self.export_images.get(), quiz_pdf=self.export_quiz_pdf.get(),
+            courseware_pdf=self.export_courseware_pdf.get()))
         self._update_controls()
 
     def resume(self):
@@ -635,7 +634,8 @@ class CourseApp:
             rows = unfinished(self.accounts.image_directory(self.account, self.save_dir.get()),
                               self.catalog["owner_fingerprint"], self.worker.origin,
                               layout=self.worker.layout, features=[f for f, enabled in (
-                                  ("quiz_images", self.export_images.get()), ("quiz_pdf", self.export_quiz_pdf.get())) if enabled])
+                                  ("quiz_images", self.export_images.get()), ("quiz_pdf", self.export_quiz_pdf.get()),
+                                  ("courseware_pdf", self.export_courseware_pdf.get())) if enabled])
         except FileNotFoundError:
             self.status.set("当前目录还没有此账号的下载任务清单")
             return
@@ -683,23 +683,26 @@ class CourseApp:
         elif kind == "log":
             prefix = "[课程扫描] "
             if self.worker.mode == "download":
-                prefix = "[习题导出] " if self.export_quiz_pdf.get() else "[习题图片] "
+                prefix = "[资源导出] " if self.export_courseware_pdf.get() else "[习题导出] " if self.export_quiz_pdf.get() else "[习题图片] "
             self._append_log(prefix + data)
         elif kind == "resource_state":
             key = (data["course_id"], data["lesson_id"], data["feature"])
             self.resources[key] = data["resource_state"]
             iid = self.lesson_iid(key[:2])
             if self.tree.exists(iid):
-                self.tree.set(iid, "quiz", RESOURCE_LABELS.get(data["resource_state"], "未知"))
+                self.tree.set(iid, "courseware" if data["feature"] == "courseware_pdf" else "quiz",
+                              RESOURCE_LABELS.get(data["resource_state"], "未知"))
             if data.get("error_type"):
-                self._append_log("[习题图片][{}] {} / {}：{}".format(data["error_type"],
+                self._append_log("[{}][{}] {} / {}：{}".format(data["feature"], data["error_type"],
                     data["course_name"], data["lesson_name"], data.get("error") or "处理失败"))
         elif kind == "feature_progress":
             c = data["quiz_images"]
             p = data["quiz_pdf"]
-            self.feature_info.set("习题图片：{}/{} 成功{} 失败{} · 习题PDF：{}/{} 成功{} 失败{} · 课件PDF：未实现".format(
+            w = data["courseware_pdf"]
+            self.feature_info.set("习题图片：{}/{} 成功{} 失败{} · 习题PDF：{}/{} 成功{} 失败{} · 课件PDF：{}/{} 成功{} 失败{}".format(
                 c["completed"], c["total"], c["success"], c["failed"],
-                p["completed"], p["total"], p["success"], p["failed"]))
+                p["completed"], p["total"], p["success"], p["failed"],
+                w["completed"], w["total"], w["success"], w["failed"]))
         elif kind == "progress":
             self._display_catalog(data["result"])
             for key, var in self.metrics.items():

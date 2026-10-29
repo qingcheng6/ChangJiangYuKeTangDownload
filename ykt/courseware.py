@@ -1,0 +1,210 @@
+"""Export only the static pages actually exposed in the authorized report."""
+import hashlib
+import json
+import os
+import uuid
+from urllib.parse import urlsplit
+from playwright.sync_api import TimeoutError
+from . import selectors as S
+from .browser import NeedsHuman, PageChanged, Stopped, check_stop, navigate, wait_condition
+from .extractor import ReportWatch, _wait_state
+from .scanner import valid_id
+from .downloader import resource_key, _fetch, _atomic_image
+from .files import FileProblem, Manifest, image_info
+from .pdf_work import PdfWork
+from .quiz_pdf import A4, write_pdf, validate_pdf, sha_file, pdf_path
+
+
+def ordered_slides(slides):
+    unique = {}
+    pages = {}
+    for index, slide in enumerate(slides):
+        if slide.get('visible') is False:
+            continue
+        if slide.get('visible') is not True or slide.get('kind') != 'slide':
+            raise PageChanged('课件可见状态或渲染类型尚未验证')
+        identity = valid_id(slide['slide_id'])
+        number = slide['page']
+        if type(number) is not int or number < 1:
+            raise PageChanged('课件页码无效，无法确认原始页序')
+        if number in pages and pages[number] != identity:
+            raise PageChanged('同一页码对应不同静态页，未猜测课件顺序')
+        if identity in unique:
+            old_cover = unique[identity][1].get('cover')
+            if old_cover and slide.get('cover') and resource_key(old_cover) != resource_key(slide['cover']):
+                raise PageChanged('同一课件页存在不同静态图，未丢弃可能的展示内容')
+            if unique[identity][1]['page'] != number:
+                raise PageChanged('重复课件页的页码不一致')
+        else:
+            unique[identity] = (index, slide)
+        pages[number] = identity
+    return sorted(unique.values(), key=lambda pair: pair[1]['page'])
+
+
+def extract_courseware(page, origin, task, stop, emit):
+    cid = valid_id(task['course_id'])
+    lesson = task['lesson']
+    if lesson.get('is_finished') is False:
+        raise PageChanged('课堂尚未结束，课件报告暂不可用')
+    cw, lid = valid_id(lesson['courseware_id']), valid_id(lesson['id'])
+    for attempt in range(4):
+        try:
+            with ReportWatch(page, origin, cw) as watch:
+                navigate(page, origin + S.REPORT_PATH.format(course_id=cid, courseware_id=cw, lesson_id=lid), stop, emit, retries=0)
+                wait_condition(page, S.REPORT_FRAME_READY, stop)
+                frame = page.locator(S.REPORT_IFRAME).element_handle().content_frame()
+                if frame is None or urlsplit(frame.url).hostname != urlsplit(origin).hostname:
+                    raise NeedsHuman('课件报告跳转，请人工检查登录或授权')
+                state = _wait_state(page, frame, watch, cid, stop)
+                if state['selected'] != 0 or state['shown'] != watch.count:
+                    raise PageChanged('全部课件视图与报告事件总数不一致')
+                items = frame.locator(S.QUIZ_ITEMS)
+                if items.count() != watch.count:
+                    raise PageChanged('课件列表未完整加载')
+                visible = [s['slide_id'] for s in state['slides'] if s.get('visible') is True]
+                preview = frame.locator(S.REPORT_VIEW).evaluate(S.COURSEWARE_PREVIEW_IDS)
+                if preview != visible:
+                    raise PageChanged('课件预览与可见放映记录不一致')
+                hidden = sum(s.get('visible') is False for s in state['slides'])
+                for index, slide in enumerate(state['slides']):
+                    if slide.get('visible') is False and items.nth(index).locator(S.QUIZ_IMAGE_REGION).count():
+                        raise PageChanged('隐藏页与实际页面状态冲突')
+                if hidden:
+                    emit('平台未显示{}条隐藏记录，未请求其图片'.format(hidden))
+                selected = ordered_slides(state['slides'])
+                resources = []
+                for index, slide in selected:
+                    check_stop(stop)
+                    watch.check()
+                    item = items.nth(index)
+                    item.scroll_into_view_if_needed(timeout=10000)
+                    if item.locator(S.COURSEWARE_UNSUPPORTED).count():
+                        raise PageChanged('课件含Canvas、视频或交互内容，当前结构未可靠导出')
+                    data = item.evaluate(S.QUIZ_RESOURCE_DATA)
+                    if data['unsupported'] or len(data['resources']) != 1:
+                        raise PageChanged('课件不是已验证的单图静态页；Canvas、视频或交互内容未可靠导出')
+                    candidates = data['resources'][0]['candidates']
+                    if not candidates:
+                        raise PageChanged('课件图片没有可用资源入口')
+                    resources.append(dict(candidates=candidates, slide_id=slide['slide_id'], page=slide['page'], frame=frame))
+                emit('报告{}条放映事件，核对{}个可访问静态页；按原始页码排序，重复放映去重'.format(watch.count,len(resources)))
+                emit('仅导出报告实际提供的静态页；未放映或未提供的原始课件页不推测、不补抓')
+                return resources
+        except TimeoutError:
+            if attempt == 3:
+                raise PageChanged('课件页面连续加载超时') from None
+            emit('课件加载超时，重试 {}/3'.format(attempt+1))
+            if stop.wait(attempt+1):
+                check_stop(stop)
+
+LANDSCAPE = (A4[1], A4[0])
+PURPOSE = 'courseware_pdf_temporary_images'
+
+
+def verified_courseware(manifest, meta, stop):
+    try:
+        path = manifest.resolve(meta['path'])
+        return (meta['status']=='complete' and meta['version']==1 and meta['scope']=='report_static_pages'
+            and type(meta['pages']) is int and meta['pages']>0 and len(meta['sequence'])==meta['pages']
+            and path.suffix.lower()=='.pdf' and path.stat().st_size==meta['size']
+            and sha_file(path,stop)==meta['sha256'] and validate_pdf(path,meta['pages'],stop,page_size=LANDSCAPE))
+    except (KeyError,TypeError,ValueError,OSError,FileProblem):
+        return False
+
+
+def export_courseware(context,page,origin,task,directory,owner,site_dir,account_id,layout,stop,emit):
+    """One authorized lesson; failures remain independent of quiz products."""
+    with Manifest(directory,owner,origin,layout=layout) as target:
+        key=task['course_id']+':'+task['lesson']['id']+':'+task['lesson']['courseware_id']
+        new=key not in target.data['lessons']
+        lesson=target.lesson(task)
+        if new: lesson['status']='pdf_only'
+        meta=lesson.setdefault('courseware_pdf',{})
+        if not isinstance(meta, dict):
+            raise FileProblem('课件PDF记录损坏，原清单已保留，请检查后重试')
+        result=dict(status='running',resource_state='unknown',error=None,error_type=None)
+        try:
+            resources=extract_courseware(page,origin,task,stop,emit)
+            sequence=[dict(slide_id=r['slide_id'],page=r['page'],resource_id=resource_key(r['candidates'][0])) for r in resources]
+            fingerprint=hashlib.sha256(json.dumps(sequence,sort_keys=True).encode()).hexdigest()
+            if not resources:
+                meta.update(status='no_images',pages=0,error=None,error_type=None)
+                result.update(status='no_images',resource_state='absent')
+                return result
+            result['resource_state']='available'
+            if meta.get('fingerprint')==fingerprint and verified_courseware(target,meta,stop):
+                emit('已核对页面范围和本地PDF，完整跳过')
+                return dict(meta,resource_state='available',skipped=True)
+            path=pdf_path(target,task,lesson,meta,suffix='_课件.pdf')
+            meta.update(status='running',path=str(path.relative_to(target.root)),fingerprint=fingerprint,
+                        scope='report_static_pages',sequence=sequence)
+            target.save()
+            with PdfWork(site_dir,account_id,task,owner,origin,purpose=PURPOSE) as work:
+                paths=[]
+                with Manifest(work.root,owner,origin) as cache:
+                    cached=cache.lesson(task)
+                    for index,resource in enumerate(resources,1):
+                        check_stop(stop)
+                        rid=resource_key(resource['candidates'][0])
+                        record=cached['resources'].setdefault(rid,dict(status='pending'))
+                        if cache.verified(record):
+                            paths.append(cache.resolve(record['path']))
+                            emit('校验跳过课件页 {}/{}（P{}）'.format(index,len(resources),resource['page']))
+                            continue
+                        for attempt in range(3):
+                            record['attempts_last_run']=attempt+1
+                            try:
+                                data=_fetch(context,resource,resource['candidates'][0],origin,stop)
+                                info=image_info(data)
+                                local=cache.directory_for(task,cached)/('slide_'+rid[:20]+info['extension'])
+                                _atomic_image(cache,local,record,data,stop)
+                                record.update(status='complete',size=info['size'],sha256=info['sha256'])
+                                cache.save();paths.append(local)
+                                emit('已读取课件页 {}/{}（P{}）'.format(index,len(resources),resource['page']))
+                                break
+                            except (NeedsHuman,Stopped):
+                                raise
+                            except Exception as exc:
+                                record.update(status='failed',error='课件图片读取或写入失败',error_type=type(exc).__name__)
+                                cache.save()
+                                if attempt==2: raise FileProblem('课件页P{}读取失败，已重试2次；未生成不完整PDF'.format(resource['page'])) from None
+                                emit('课件页读取失败（{}），重试{}/2'.format(type(exc).__name__,attempt+1))
+                                if stop.wait(attempt+1):check_stop(stop)
+                        if stop.wait(.15):check_stop(stop)
+                path.parent.mkdir(parents=True,exist_ok=True)
+                for attempt in range(3):
+                    temporary=path.parent/('.courseware_'+uuid.uuid4().hex[:8]+'.part')
+                    target.resolve(str(temporary.relative_to(target.root)))
+                    meta['attempts_last_run']=attempt+1
+                    try:
+                        conversions=write_pdf(temporary,paths,stop,page_size=LANDSCAPE)
+                        if not validate_pdf(temporary,len(sequence),stop,page_size=LANDSCAPE):
+                            raise FileProblem('课件PDF页数、页面或图像验证失败')
+                        digest=sha_file(temporary,stop);size=temporary.stat().st_size
+                        check_stop(stop)
+                        os.replace(str(temporary),str(path))
+                        meta.update(status='complete',version=1,pages=len(sequence),size=size,sha256=digest,
+                                    conversions=conversions,error=None,error_type=None)
+                        target.save();work.discard=True
+                        for note in conversions:
+                            emit('转换记录：'+note)
+                        emit('已保存课件PDF，{}页；仅包含报告已提供的静态页'.format(len(sequence)))
+                        return dict(meta,resource_state='available',skipped=False)
+                    except Stopped: raise
+                    except Exception as exc:
+                        if attempt==2: raise FileProblem('课件PDF生成或保存失败（{}），已重试2次'.format(type(exc).__name__)) from None
+                        emit('课件PDF失败，重试{}/2'.format(attempt+1))
+                        if stop.wait(attempt+1):check_stop(stop)
+                    finally:
+                        if temporary.is_file():temporary.unlink()
+        except (NeedsHuman,Stopped) as exc:
+            meta.update(status='needs_human' if isinstance(exc,NeedsHuman) else 'stopped',error='等待人工处理或任务已停止',error_type=type(exc).__name__)
+            raise
+        except Exception as exc:
+            reason=str(exc) if isinstance(exc,(FileProblem,PageChanged)) else '课件导出异常（{}）'.format(type(exc).__name__)
+            meta.update(status='failed',error=reason,error_type=type(exc).__name__)
+            result.update(status='failed',resource_state='error',error=reason,error_type=type(exc).__name__)
+            emit('未完成：'+reason)
+            return result
+        finally:
+            target.save()

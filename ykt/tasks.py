@@ -1,4 +1,4 @@
-"""Account-scoped feature status; courseware PDF remains unimplemented."""
+"""Account-scoped feature status for three optional export functions."""
 import hashlib
 from datetime import datetime, timezone
 
@@ -59,7 +59,7 @@ class TaskLedger:
                 self.data["tasks"][key] = dict(account_id=self.account_id, course_id=task["course_id"],
                     lesson_id=task["lesson"]["id"], courseware_id=task["lesson"]["courseware_id"],
                     course_name=task["course_name"], lesson_name=task["lesson"]["name"], feature=feature,
-                    status=("pending" if feature in ("quiz_images", "quiz_pdf") else "not_implemented") if selected else "not_selected",
+                    status="pending" if selected else "not_selected",
                     resource_state="unknown", error=None, error_type=None)
                 if selected:
                     self.keys.append(key)

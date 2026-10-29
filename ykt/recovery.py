@@ -19,15 +19,19 @@ def unfinished(directory, owner, origin, layout="legacy", features=None):
             if lesson.get("error"):
                 reasons.append(lesson["error"])
             image_unfinished = lesson["status"] not in ("complete", "no_images")
-        pdf = lesson.get("quiz_pdf")
-        if pdf is not None and not isinstance(pdf, dict):
-            raise ValueError("PDF任务记录异常")
-        pdf_unfinished = "quiz_pdf" in features and pdf and pdf.get("status") not in ("complete", "no_images")
-        if pdf_unfinished:
-            reasons.append("[习题PDF] " + (pdf.get("error") or "PDF尚未完成"))
+        pdf_unfinished = False
+        pdf_status = None
+        for feature, label in (("quiz_pdf", "习题PDF"), ("courseware_pdf", "课件PDF")):
+            pdf = lesson.get(feature)
+            if pdf is not None and not isinstance(pdf, dict):
+                raise ValueError("PDF任务记录异常")
+            if feature in features and pdf and pdf.get("status") not in ("complete", "no_images"):
+                pdf_unfinished = True
+                pdf_status = pdf.get("status")
+                reasons.append("[{}] ".format(label) + (pdf.get("error") or "PDF尚未完成"))
         if image_unfinished or pdf_unfinished or reasons:
             results.append(dict(course_id=lesson["course_id"], lesson_id=lesson["lesson_id"],
                                 course_name=lesson["course_name"], lesson_name=lesson["lesson_name"],
-                                status=pdf.get("status") if pdf_unfinished else lesson["status"],
+                                status=pdf_status if pdf_unfinished else lesson["status"],
                                 reasons=list(dict.fromkeys(reasons))))
     return results

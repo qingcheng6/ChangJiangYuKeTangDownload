@@ -12,12 +12,12 @@ from .browser import check_stop
 
 
 class PdfWork:
-    def __init__(self, site_dir, account_id, task, owner, origin):
+    def __init__(self, site_dir, account_id, task, owner, origin, purpose="quiz_pdf_temporary_images"):
         identity = str(site_dir.resolve()) + ":" + account_id + ":" + task["course_id"] + ":" + task["lesson"]["id"] + ":" + task["lesson"]["courseware_id"]
-        self.key = hashlib.sha256(identity.encode()).hexdigest()
+        self.key = hashlib.sha256((identity if purpose == "quiz_pdf_temporary_images" else identity + ":" + purpose).encode()).hexdigest()
         self.base = (Path(tempfile.gettempdir()) / "ykt_pdf_work").resolve()
         self.root = self.base / self.key
-        self.marker = dict(schema_version=1, purpose="quiz_pdf_temporary_images", key=self.key)
+        self.marker = dict(schema_version=1, purpose=purpose, key=self.key)
         self.lease = LocalLock(self.base / (self.key + ".lock"))
         self.owner, self.origin, self.task = owner, origin, task
         self.discard = False

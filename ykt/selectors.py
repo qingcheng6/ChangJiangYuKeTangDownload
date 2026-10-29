@@ -118,7 +118,7 @@ REPORT_STATE = """e => {
   all:all.length, shown:shown.length, selected:val(s.lessonSelectTab),
   sent:val(s.isSentProblem), has_problem:val(s.lessonStats)?.problemStatistics?.hasProblem,
   slides:shown.map(x=>({slide_id:String(x.id),page:x.index,dt:x.dt,
-      sent:x.sendProblem,has_problem:x.hasProblem,cover:x.cover}))};
+      sent:x.sendProblem,has_problem:x.hasProblem,cover:x.cover,visible:x.visible,kind:x.type}))};
 }"""
 
 # Generic image attributes are examined only inside the verified quiz image
@@ -156,3 +156,12 @@ QUIZ_RESOURCE_DATA = """e => {
  if(region.querySelector('svg'))unsupported.push('内联 SVG 渲染未验证，未转换图片');
  return {resources,unsupported};
 }"""
+
+# V2 stage3: actual preview excludes visible=false events (math sample P35).
+COURSEWARE_PREVIEW_IDS = """e => {
+ const x=e.__vue__?._setupState?.swiperList;
+ const rows=x?.__v_isRef?x.value:x;
+ return Array.isArray(rows)?rows.map(s=>String(s.id)):null;
+}"""
+
+COURSEWARE_UNSUPPORTED = "canvas,svg,video,audio,iframe"

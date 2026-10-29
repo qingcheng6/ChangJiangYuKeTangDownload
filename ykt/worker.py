@@ -57,10 +57,10 @@ class ScanWorker:
             self.post("error", "[习题图片] 任务账号与当前本地账号绑定不一致，请重新扫描")
             return False
         options = dict(options) if options is not None else {"quiz_images": True, "quiz_pdf": False}
-        if options.get("courseware_pdf") or not (options.get("quiz_images") or options.get("quiz_pdf")):
-            self.post("error", "请选择习题图片或习题PDF；课件PDF尚未实现")
+        if not any(options.get(f) for f in ("quiz_images", "quiz_pdf", "courseware_pdf")):
+            self.post("error", "请至少选择一项导出功能")
             return False
-        if options.get("quiz_pdf") and not self.account_id:
+        if (options.get("quiz_pdf") or options.get("courseware_pdf")) and not self.account_id:
             self.post("error", "PDF任务需要本地账号ID，请从GUI启动")
             return False
         request = dict(tasks=deepcopy(tasks), directory=Path(directory), owner=owner, options=options)
@@ -180,7 +180,13 @@ class ScanWorker:
             with open_browser(self.site_dir / "browser", emit, self.channel) as (context, page):
                 while not self.stop_event.is_set():
                     try:
-                        if request["options"].get("quiz_pdf"):
+                        if request["options"].get("courseware_pdf"):
+                            from .resource_export import export_resources
+                            result = export_resources(context, page, self.origin, request,
+                                self.site_dir, self.account_id, self.layout, self.stop_event, emit,
+                                self._lesson_done, self._feature_done,
+                                lambda value: self.post("download_progress", value))
+                        elif request["options"].get("quiz_pdf"):
                             from .quiz_export import export_quizzes
                             result = export_quizzes(context, page, self.origin, request,
                                 self.site_dir, self.account_id, self.layout, self.stop_event, emit,

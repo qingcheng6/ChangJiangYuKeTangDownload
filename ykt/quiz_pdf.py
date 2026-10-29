@@ -69,18 +69,18 @@ def image_stream(path):
     return stream, width, height, notes, info
 
 
-def write_pdf(path, paths, stop):
+def write_pdf(path, paths, stop, page_size=A4):
     writer = PdfWriter()
     conversions = []
     for index, source in enumerate(paths, 1):
         check_stop(stop)
         stream, width, height, notes, _ = image_stream(source)
-        page = writer.add_blank_page(*A4)
+        page = writer.add_blank_page(*page_size)
         page[NameObject("/Resources")] = DictionaryObject({NameObject("/XObject"): DictionaryObject({
             NameObject("/Im0"): writer._add_object(stream)})})
-        scale = min(A4[0] / width, A4[1] / height)
+        scale = min(page_size[0] / width, page_size[1] / height)
         w, h = width * scale, height * scale
-        x, y = (A4[0] - w) / 2, (A4[1] - h) / 2
+        x, y = (page_size[0] - w) / 2, (page_size[1] - h) / 2
         content = DecodedStreamObject()
         content.set_data(("q %.7f 0 0 %.7f %.7f %.7f cm /Im0 Do Q\n" % (w, h, x, y)).encode("ascii"))
         page[NameObject("/Contents")] = writer._add_object(content)
@@ -93,7 +93,7 @@ def write_pdf(path, paths, stop):
     return conversions
 
 
-def validate_pdf(path, pages, stop=None):
+def validate_pdf(path, pages, stop=None, page_size=A4):
     try:
         with path.open("rb") as stream:
             if not stream.read(8).startswith(b"%PDF-"):
@@ -106,14 +106,14 @@ def validate_pdf(path, pages, stop=None):
                 if stop is not None:
                     check_stop(stop)
                 if any(abs(float(size) - target) > 0.02 for size, target in zip(
-                        (page.mediabox.width, page.mediabox.height), A4)):
+                        (page.mediabox.width, page.mediabox.height), page_size)):
                     return False
                 operations = ContentStream(page.get_contents(), reader).operations
                 if [op for _, op in operations] != [b"q", b"cm", b"Do", b"Q"]:
                     return False
                 matrix = [float(v) for v in operations[1][0]]
                 w, b, c, h, x, y = matrix
-                if b or c or w <= 0 or h <= 0 or min(x, y) < -0.01 or x + w > A4[0] + 0.02 or y + h > A4[1] + 0.02:
+                if b or c or w <= 0 or h <= 0 or min(x, y) < -0.01 or x + w > page_size[0] + 0.02 or y + h > page_size[1] + 0.02:
                     return False
                 images = list(page.images)
                 if len(images) != 1:
@@ -159,14 +159,13 @@ def ordered_sources(manifest, lesson):
     return paths, fingerprint
 
 
-def pdf_path(manifest, task, lesson, metadata):
+def pdf_path(manifest, task, lesson, metadata, suffix="_习题合集.pdf"):
     parent = manifest.directory_for(task, lesson)
     if metadata.get("path"):
         existing = manifest.resolve(metadata["path"])
         if existing.parent != parent or existing.suffix.lower() != ".pdf":
             raise FileProblem("PDF任务路径与课时目录不匹配")
         return existing
-    suffix = "_习题合集.pdf"
     budget = min(80, 234 - units(parent) - units(suffix))
     if budget < 10:
         raise FileProblem("PDF文件路径过长，请选择较短保存目录")

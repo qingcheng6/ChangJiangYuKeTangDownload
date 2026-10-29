@@ -172,7 +172,7 @@ class AccountTests(unittest.TestCase):
             self.assertIn("至少", app.status.get())
             app.export_courseware_pdf.set(True)
             app.start_download()
-            self.assertIn("尚未实现课件PDF", app.status.get())
+            self.assertIn("请先扫描", app.status.get())
             self.assertFalse(app.callback_errors)
         finally:
             release.set()
