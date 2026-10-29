@@ -1,6 +1,8 @@
 @echo off
 setlocal
 chcp 65001 >nul
+title Rain Classroom Resource Exporter V2.0
+echo Rain Classroom Resource Exporter V2.0
 cd /d "%~dp0"
 if exist ".venv\Scripts\python.exe" (
   ".venv\Scripts\python.exe" bootstrap.py %*

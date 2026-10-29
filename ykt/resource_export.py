@@ -2,13 +2,15 @@
 from .browser import Stopped, check_stop
 from .courseware import export_courseware
 from .downloader import download, verify_account
-from .quiz_export import export_quizzes
+from .quiz_export import export_quizzes, _record_pending_pdfs
 
 
 def export_resources(context,page,origin,request,site_dir,account_id,layout,stop,emit,image_done,feature_done,progress):
     result=dict(total=len(request['tasks']),completed=0,success=0,failed=0,status='running',
                 downloaded=0,skipped=0,image_failed=0,no_images=0,current_course='—',current_lesson='—')
     verify_account(page,origin,request['owner'],stop,emit)
+    _record_pending_pdfs(request, origin, layout,
+                        [feature for feature in ('quiz_pdf', 'courseware_pdf') if request['options'].get(feature)])
     try:
         for task in request['tasks']:
             check_stop(stop)

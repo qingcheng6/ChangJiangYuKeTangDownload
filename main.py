@@ -20,7 +20,7 @@ def emit(message):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="雨课堂课程扫描与习题图片下载工具")
+    parser = argparse.ArgumentParser(description="雨课堂教学资源批量导出工具 V2.0")
     parser.add_argument("--origin", default="https://changjiang.yuketang.cn")
     parser.add_argument("--channel", choices=("chrome", "msedge"))
     parser.add_argument("--account", help="本地账号ID；默认使用界面最后选择的账号")

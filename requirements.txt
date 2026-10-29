@@ -1,3 +1,4 @@
+# V2.0 release: validated pins; no new runtime dependencies in integration.
 # Python >=3.9; retain support for Python 3.9 instead of installing latest.
 playwright==1.56.0
 # Verify image content/format and reject truncated files (Python >=3.9).

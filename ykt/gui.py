@@ -47,7 +47,7 @@ class CourseApp:
         self.waiting_human = False
         self.callback_errors = []
         self.root.report_callback_exception = self._callback_error
-        self.root.title("雨课堂习题图片下载工具")
+        self.root.title("雨课堂教学资源批量导出工具")
         self.root.geometry("1120x760")
         self.root.minsize(900, 620)
         self.root.protocol("WM_DELETE_WINDOW", self.close)
@@ -110,7 +110,7 @@ class CourseApp:
         outer.rowconfigure(4, weight=1)
         header = ttk.Frame(outer)
         header.grid(row=0, column=0, sticky="ew")
-        ttk.Label(header, text="雨课堂习题图片下载工具",
+        ttk.Label(header, text="雨课堂教学资源批量导出工具",
                   font=("Microsoft YaHei UI", 16, "bold")).pack(side="left")
         self.manage_account_button = ttk.Button(header, text="管理账号…", command=self.manage_account)
         self.manage_account_button.pack(side="right")
@@ -119,7 +119,7 @@ class CourseApp:
         self.account_box = ttk.Combobox(header, state="readonly", width=22)
         self.account_box.pack(side="right", padx=6)
         self.account_box.bind("<<ComboboxSelected>>", self._account_selected)
-        ttk.Label(outer, text="仅保存当前账号可访问的课堂习题图片 · 完整文件自动跳过",
+        ttk.Label(outer, text="仅导出当前账号可访问的资源 · 完整文件校验后跳过",
                   foreground="#526174").grid(row=1, column=0, sticky="w", pady=(3, 10))
         actions = ttk.Frame(outer)
         actions.grid(row=2, column=0, sticky="ew")
@@ -365,7 +365,7 @@ class CourseApp:
             self._append_log("目录设置无法读取，请重新选择保存目录")
 
     def choose_directory(self):
-        directory = filedialog.askdirectory(parent=self.root, title="选择习题图片保存目录",
+        directory = filedialog.askdirectory(parent=self.root, title="选择导出文件保存目录",
                                              initialdir=self.save_dir.get() or str(self.project_root),
                                              mustexist=True)
         if directory:

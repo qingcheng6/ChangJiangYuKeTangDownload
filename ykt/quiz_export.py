@@ -8,6 +8,25 @@ from .pdf_work import PdfWork
 from .quiz_pdf import merge_lesson, verified_pdf
 
 
+def _record_pending_pdfs(request, origin, layout, features):
+    """Persist selected intent before images run; never reset completed output."""
+    with Manifest(request["directory"], request["owner"], origin, layout=layout) as formal:
+        changed = False
+        for task in request["tasks"]:
+            key = task["course_id"] + ":" + task["lesson"]["id"] + ":" + task["lesson"]["courseware_id"]
+            new = key not in formal.data["lessons"]
+            lesson = formal.lesson(task)
+            if new and not request["options"].get("quiz_images"):
+                lesson["status"] = "pdf_only"
+            changed |= new
+            for feature in features:
+                if feature not in lesson:
+                    lesson[feature] = dict(status="pending", error=None, error_type=None)
+                    changed = True
+        if changed:
+            formal.save()
+
+
 def export_quizzes(context, page, origin, request, site_dir, account_id, layout, stop,
                    emit, image_done, feature_done, progress):
     keep_images = request["options"]["quiz_images"]
@@ -15,6 +34,7 @@ def export_quizzes(context, page, origin, request, site_dir, account_id, layout,
         status="running", downloaded=0, skipped=0, image_failed=0, no_images=0,
         current_course="—", current_lesson="—")
     verify_account(page, origin, request["owner"], stop, emit)
+    _record_pending_pdfs(request, origin, layout, ("quiz_pdf",))
     try:
         for task in request["tasks"]:
             check_stop(stop)
