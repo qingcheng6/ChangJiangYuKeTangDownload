@@ -109,7 +109,7 @@ def verify_account(page, origin, owner, stop, emit):
 
 
 def download(context, page, origin, tasks, directory, owner, stop, emit, on_progress=None,
-             on_lesson=None, layout="legacy", naming=None):
+             on_lesson=None, layout="legacy", naming=None, answers=False):
     verify_account(page, origin, owner, stop, emit)
     result = dict(total=len(tasks), completed=0, success=0, failed=0, status="running",
                   downloaded=0, skipped=0, image_failed=0, no_images=0,
@@ -141,7 +141,8 @@ def download(context, page, origin, tasks, directory, owner, stop, emit, on_prog
                 emit("处理课时：{} / {}".format(" ".join(task["course_name"].split()),
                                                " ".join(task["lesson"]["name"].split())))
                 try:
-                    extracted = extract_lesson(page, origin, task, stop, emit)
+                    extracted = (extract_lesson(page, origin, task, stop, emit, answers=True) if answers
+                                 else extract_lesson(page, origin, task, stop, emit))
                     lesson["warnings"] = list(dict.fromkeys(extracted["unsupported"]))
                     lesson["quiz_pages"] = extracted["pages"]
                     unique = []
@@ -151,6 +152,10 @@ def download(context, page, origin, tasks, directory, owner, stop, emit, on_prog
                     # repeated image displayed on another question page.
                     lesson["pdf_sequence"] = [dict(resource_id=resource_key(r["candidates"][0]),
                         slide_id=r["slide_id"], page=r["page"]) for r in extracted["resources"]]
+                    if answers:
+                        lesson['native_answers'] = [dict(occurrence=i, **occurrence,
+                            **extracted['resources'][i]['native_answer'])
+                            for i,occurrence in enumerate(lesson['pdf_sequence'])]
                     for resource in extracted["resources"]:
                         key = resource_key(resource["candidates"][0])
                         if key not in seen:

@@ -7,6 +7,7 @@ from .files import Manifest
 from .pdf_work import PdfWork
 from .quiz_pdf import merge_lesson, verified_pdf
 from .naming import lesson_key
+from .answer_images import pdf_field
 
 
 def _record_pending_pdfs(request, origin, layout, features):
@@ -25,8 +26,9 @@ def _record_pending_pdfs(request, origin, layout, features):
                 lesson["status"] = "pdf_only"
             changed |= new
             for feature in features:
-                if feature not in lesson:
-                    lesson[feature] = dict(status="pending", error=None, error_type=None)
+                field = pdf_field(request['options']) if feature == 'quiz_pdf' else feature
+                if field not in lesson:
+                    lesson[field] = dict(status="pending", error=None, error_type=None)
                     changed = True
         if changed:
             formal.save()
@@ -37,6 +39,8 @@ def _record_pending_pdfs(request, origin, layout, features):
 def export_quizzes(context, page, origin, request, site_dir, account_id, layout, stop,
                    emit, image_done, feature_done, progress):
     keep_images = request["options"]["quiz_images"]
+    answers = bool(request['options'].get('quiz_answers'))
+    field = pdf_field(request['options'])
     result = dict(total=len(request["tasks"]), completed=0, success=0, failed=0,
         status="running", downloaded=0, skipped=0, image_failed=0, no_images=0,
         current_course="—", current_lesson="—")
@@ -56,8 +60,8 @@ def export_quizzes(context, page, origin, request, site_dir, account_id, layout,
             # requests. Ownership was verified above; existence alone is never enough.
             if not keep_images and target.path.exists():
                 with target as formal:
-                    old = formal.data["lessons"].get(key, {}).get("quiz_pdf", {})
-                    if verified_pdf(formal, old, stop):
+                    old = formal.data["lessons"].get(key, {}).get(field, {})
+                    if verified_pdf(formal, old, stop, answers=answers):
                         feature_done(task, "quiz_pdf", dict(old, resource_state="available", skipped=True))
                         emit(prefix + "PDF完整且任务已完成，跳过；未创建临时图片：" + old['path'])
                         result["completed"] += 1
@@ -79,7 +83,7 @@ def export_quizzes(context, page, origin, request, site_dir, account_id, layout,
                 images = download(context, page, origin, [task], source_directory, request["owner"],
                     stop, lambda message: emit(("[临时习题图片] " if work else "[习题图片] ") + message),
                     on_progress=transfer_update, on_lesson=image_done if keep_images else None,
-                    layout=source_layout, naming=request.get('naming'))
+                    layout=source_layout, naming=request.get('naming'), answers=answers)
                 for metric in ("downloaded", "skipped", "image_failed", "no_images"):
                     result[metric] += images[metric]
                 if images["status"] == "stopped":
@@ -88,7 +92,7 @@ def export_quizzes(context, page, origin, request, site_dir, account_id, layout,
                 source_lesson = source.read_existing()["lessons"][key]
                 with target as formal:
                     pdf = merge_lesson(formal, task, source, source_lesson, stop,
-                                       lambda message: emit(prefix + message))
+                                       lambda message: emit(prefix + message), answers=answers)
                 feature_done(task, "quiz_pdf", pdf)
                 if work and pdf["status"] in ("complete", "no_images"):
                     work.discard = True

@@ -201,7 +201,7 @@ class Manifest:
             old = self.data['lessons'].get(previous)
             if (old and not old['resources'] and old.get('directory') is None and
                     old['status'] in ('pending', 'pdf_only') and
-                    all(old.get(f, {}).get('status', 'pending') == 'pending' for f in ('quiz_pdf', 'courseware_pdf'))):
+                    all(old.get(f, {}).get('status', 'pending') == 'pending' for f in ('quiz_pdf', 'quiz_pdf_answers', 'courseware_pdf'))):
                 del self.data['lessons'][previous]
         return self.data["lessons"].setdefault(key, dict(
             course_id=task["course_id"], lesson_id=task["lesson"]["id"],

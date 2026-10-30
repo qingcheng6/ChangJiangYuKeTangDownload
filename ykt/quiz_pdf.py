@@ -16,6 +16,8 @@ from pypdf.generic import (ContentStream, DecodedStreamObject, DictionaryObject,
 from .browser import Stopped, check_stop
 from .files import FileProblem, image_info, safe_name, safe_prefixed_name, units
 from .naming import lesson_key, named
+from .answer_images import (ANNOTATION_VERSION, ANSWER_FIELD, annotated_sources,
+                           annotated_fingerprint, normalize_choice)
 
 A4 = (595.275591, 841.889764)
 PDF_VERSION = 1
@@ -130,10 +132,25 @@ def validate_pdf(path, pages, stop=None, page_size=A4):
         return False
 
 
-def verified_pdf(manifest, metadata, stop=None):
+def verified_pdf(manifest, metadata, stop=None, answers=False):
     try:
         path = manifest.resolve(metadata["path"])
-        return (metadata["status"] == "complete" and metadata.get("version") == PDF_VERSION
+        variant_ok = metadata.get('variant', 'plain') == 'plain'
+        if answers:
+            mapping = metadata.get('answer_mapping')
+            variant_ok = (metadata.get('variant') == 'answers' and metadata.get('annotation_version') == ANNOTATION_VERSION
+                and type(metadata.get('annotated_pages')) is int and metadata['annotated_pages'] >= 0
+                and type(metadata.get('missing_answers')) is int and metadata['missing_answers'] >= 0
+                and metadata['annotated_pages'] + metadata['missing_answers'] == metadata.get('pages')
+                and isinstance(mapping, list) and len(mapping) == metadata.get('pages')
+                and all(isinstance(row, dict) and (row.get('answer') is None or
+                    (normalize_choice(row['answer']) == row['answer'] and row.get('source') == 'correct_dom'))
+                    for row in mapping)
+                and sum(row.get('answer') is not None for row in mapping) == metadata['annotated_pages']
+                and isinstance(metadata.get('source_fingerprint'),str)
+                and re.fullmatch(r'[0-9a-f]{64}',metadata['source_fingerprint']) is not None
+                and annotated_fingerprint(metadata['source_fingerprint'],mapping) == metadata.get('fingerprint'))
+        return (variant_ok and metadata["status"] == "complete" and metadata.get("version") == PDF_VERSION
             and isinstance(metadata.get("fingerprint"), str) and re.fullmatch(r"[0-9a-f]{64}", metadata["fingerprint"]) is not None
             and type(metadata.get("pages")) is int and metadata["pages"] > 0
             and path.suffix.lower() == ".pdf" and path.stat().st_size == metadata["size"]
@@ -187,14 +204,14 @@ def pdf_path(manifest, task, lesson, metadata, suffix="_习题合集.pdf"):
     return candidate
 
 
-def merge_lesson(target, task, source, source_lesson, stop, emit):
+def merge_lesson(target, task, source, source_lesson, stop, emit, answers=False):
     """Caller holds the target Manifest lock; image status is never overwritten."""
     key = lesson_key(task)
     new = key not in target.data["lessons"]
     lesson = target.lesson(task)
     if new:
         lesson["status"] = "pdf_only"
-    metadata = lesson.setdefault("quiz_pdf", {})
+    metadata = lesson.setdefault(ANSWER_FIELD if answers else "quiz_pdf", {})
     result = dict(status="running", resource_state="available" if source_lesson.get("quiz_pages", 0) > 0 else "unknown",
                   error=None, error_type=None)
     try:
@@ -203,13 +220,27 @@ def merge_lesson(target, task, source, source_lesson, stop, emit):
             result.update(status="no_images", resource_state="absent")
             return result
         paths, fingerprint = ordered_sources(source, source_lesson)
+        extra = {}
+        if answers:
+            paths, identity, stats = annotated_sources(paths, source_lesson['pdf_sequence'], source_lesson.get('native_answers'))
+            source_fingerprint = fingerprint
+            fingerprint = annotated_fingerprint(source_fingerprint,identity)
+            extra = dict(variant='answers', annotation_version=ANNOTATION_VERSION, source_fingerprint=source_fingerprint,
+                         answer_mapping=identity, **stats)
+            for index, row in enumerate(identity, 1):
+                if row['answer'] is None:
+                    emit('第{}页：无答案，未标注'.format(index))
         result["resource_state"] = "available"
-        if metadata.get("fingerprint") == fingerprint and verified_pdf(target, metadata, stop):
+        if metadata.get("fingerprint") == fingerprint and verified_pdf(target, metadata, stop, answers=answers):
             result.update(metadata, skipped=True, error=None, error_type=None)
             emit("PDF完整、页序与来源一致，已跳过：" + metadata['path'])
             return result
-        path = pdf_path(target, task, lesson, metadata)
-        metadata.update(path=str(path.relative_to(target.root)), status="pending", fingerprint=fingerprint)
+        suffix = '_习题合集_带答案.pdf' if answers else '_习题合集.pdf'
+        if metadata.get('path') and (metadata.get('variant', 'plain') != ('answers' if answers else 'plain') or
+                (answers and not metadata['path'].endswith(suffix))):
+            raise FileProblem('习题PDF版本与任务路径不匹配，原文件未修改')
+        path = pdf_path(target, task, lesson, metadata, suffix=suffix)
+        metadata.update(path=str(path.relative_to(target.root)), status="pending", fingerprint=fingerprint, **extra)
         target.save()
         path.parent.mkdir(parents=True, exist_ok=True)
         for attempt in range(3):
@@ -230,6 +261,8 @@ def merge_lesson(target, task, source, source_lesson, stop, emit):
                 for message in conversions:
                     emit("转换记录：" + message)
                 emit("已保存习题合集，{}页：{}".format(len(paths), metadata['path']))
+                if answers:
+                    emit('答案标注{}页，无答案{}页；原图未修改'.format(metadata['annotated_pages'],metadata['missing_answers']))
                 return result
             except Stopped:
                 raise

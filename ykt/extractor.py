@@ -8,6 +8,7 @@ from playwright.sync_api import Error, TimeoutError
 from . import selectors as S
 from .browser import NeedsHuman, PageChanged, check_stop, navigate, wait_condition
 from .scanner import valid_id
+from .answer_images import read_native_answer
 
 
 class ReportWatch:
@@ -99,7 +100,7 @@ def _wait_state(page, frame, watch, course_id, stop, selected=False, all_slides=
     raise TimeoutError("习题报告加载状态等待超时")
 
 
-def extract_lesson(page, origin, task, stop, emit):
+def extract_lesson(page, origin, task, stop, emit, answers=False):
     """Returns ordered authorized resource candidates; never persists URLs."""
     cid = valid_id(task["course_id"])
     lesson = task["lesson"]
@@ -147,6 +148,14 @@ def extract_lesson(page, origin, task, stop, emit):
                     item = items.nth(index)
                     item.scroll_into_view_if_needed(timeout=10000)
                     data = item.evaluate(S.QUIZ_RESOURCE_DATA)
+                    native = None
+                    if answers:
+                        # Read visible text in this already-verified question
+                        # item. Never read hidden answer APIs or infer from score.
+                        native = read_native_answer(item.inner_text())
+                        if len(data['resources']) != 1:
+                            native = dict(answer=None, source='correct_dom', status='missing',
+                                          reason='单个题目区域不只一张图，答案归属无法唯一确认')
                     unsupported.extend(data["unsupported"])
                     if not data["resources"]:
                         unsupported.append("习题页没有可提取图片，未导出截图")
@@ -162,7 +171,8 @@ def extract_lesson(page, origin, task, stop, emit):
                             unsupported.append("图片没有受支持的资源入口")
                             continue
                         resources.append(dict(candidates=candidates, slide_id=slide["slide_id"],
-                                              page=slide["page"], frame=frame))
+                                              page=slide["page"], frame=frame,
+                                              **({'native_answer':native} if answers else {})))
                 return dict(resources=resources, unsupported=unsupported, pages=watch.quiz_count)
         except TimeoutError:
             if attempt == 3:

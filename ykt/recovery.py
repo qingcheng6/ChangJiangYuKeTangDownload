@@ -1,9 +1,10 @@
 """Read persisted unfinished tasks; never treats this view as file verification."""
 
 from .files import Manifest
+from .answer_images import ANSWER_FIELD
 
 
-def unfinished(directory, owner, origin, layout="legacy", features=None, naming_mode='original'):
+def unfinished(directory, owner, origin, layout="legacy", features=None, naming_mode='original', quiz_answers=False):
     manifest = Manifest(directory, owner, origin, layout=layout)
     data = manifest.read_existing()
     results = []
@@ -24,7 +25,10 @@ def unfinished(directory, owner, origin, layout="legacy", features=None, naming_
         pdf_unfinished = False
         pdf_status = None
         for feature, label in (("quiz_pdf", "习题PDF"), ("courseware_pdf", "课件PDF")):
-            pdf = lesson.get(feature)
+            field = ANSWER_FIELD if feature == 'quiz_pdf' and quiz_answers else feature
+            if field == ANSWER_FIELD:
+                label = '带答案习题PDF'
+            pdf = lesson.get(field)
             if pdf is not None and not isinstance(pdf, dict):
                 raise ValueError("PDF任务记录异常")
             if feature in features and pdf and pdf.get("status") not in ("complete", "no_images"):

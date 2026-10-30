@@ -64,6 +64,7 @@ class CourseApp:
         self.export_images = tk.BooleanVar(value=True)
         self.export_quiz_pdf = tk.BooleanVar(value=False)
         self.export_courseware_pdf = tk.BooleanVar(value=False)
+        self.export_answers = tk.BooleanVar(value=False)
         self.naming_mode = tk.StringVar(value='original')
         self.feature_info = tk.StringVar(value="习题图片：待执行 · 习题PDF：待执行 · 课件PDF：待执行")
         self._build()
@@ -187,6 +188,10 @@ class CourseApp:
             check = ttk.Checkbutton(export_row, text=label, variable=variable, command=self._update_controls)
             check.pack(side="left", padx=(0, 12))
             self.export_checks.append(check)
+        self.answer_check = ttk.Checkbutton(export_row, text='标注习题答案', variable=self.export_answers,
+                                           command=self._answers_changed)
+        self.answer_check.pack(side='left', padx=(0,12))
+        self.export_checks.append(self.answer_check)
         naming_row = ttk.Frame(options)
         naming_row.pack(fill='x', pady=(3, 0))
         ttk.Label(naming_row, text='命名规则：').pack(side='left')
@@ -403,6 +408,12 @@ class CourseApp:
             self._append_log('[命名] 当前选择已生效，但设置未能保存')
         self._append_log('[命名] 已选择{}{}'.format(MODES[mode],
             '；当前课时保持不变，下一个课时生效' if self.worker.running and self.worker.mode == 'download' else ''))
+
+    def _answers_changed(self):
+        self._assert_ui()
+        if self.export_answers.get():
+            self.export_quiz_pdf.set(True)
+        self._update_controls()
 
     def choose_directory(self):
         directory = filedialog.askdirectory(parent=self.root, title="选择导出文件保存目录",
@@ -635,11 +646,13 @@ class CourseApp:
         self._append_log("开始处理 {} 个课时；图片{}，习题PDF{}，课件PDF{}".format(len(tasks),
             "保留" if self.export_images.get() else "仅临时用于PDF" if self.export_quiz_pdf.get() else "不导出", "开启" if self.export_quiz_pdf.get() else "关闭",
             "开启（仅报告可访问静态页）" if self.export_courseware_pdf.get() else "关闭"))
+        if self.export_answers.get():
+            self._append_log('[答案] 仅使用网页明确显示的正确/参考答案；提交答案与得分不作为标准答案')
         directory = self.accounts.image_directory(self.account, self.save_dir.get(), layout=self.worker.layout)
         self.worker.set_naming_mode(self.naming_mode.get())
         self.worker.start_download(tasks, directory, self.catalog["owner_fingerprint"], options=dict(
             quiz_images=self.export_images.get(), quiz_pdf=self.export_quiz_pdf.get(),
-            courseware_pdf=self.export_courseware_pdf.get()), catalog=self.catalog)
+            courseware_pdf=self.export_courseware_pdf.get(), quiz_answers=self.export_answers.get()), catalog=self.catalog)
         self._update_controls()
 
     def resume(self):
@@ -676,7 +689,8 @@ class CourseApp:
                               self.catalog["owner_fingerprint"], self.worker.origin,
                               layout=self.worker.layout, features=[f for f, enabled in (
                                   ("quiz_images", self.export_images.get()), ("quiz_pdf", self.export_quiz_pdf.get()),
-                                  ("courseware_pdf", self.export_courseware_pdf.get())) if enabled], naming_mode=self.naming_mode.get())
+                                  ("courseware_pdf", self.export_courseware_pdf.get())) if enabled], naming_mode=self.naming_mode.get(),
+                              quiz_answers=self.export_answers.get())
         except FileNotFoundError:
             self.status.set("当前目录还没有此账号的下载任务清单")
             return
@@ -782,6 +796,8 @@ class CourseApp:
                 self.status.set("已停止；已完成文件和记录已保留")
 
     def _update_controls(self):
+        if not self.export_quiz_pdf.get():
+            self.export_answers.set(False)
         running = self.worker.running
         idle = not running and not self.closing and self.pending_account is None
         has_account = self.account is not None
