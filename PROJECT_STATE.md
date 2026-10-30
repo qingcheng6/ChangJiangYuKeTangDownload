@@ -4,6 +4,9 @@
 
 ## 当前专项：双源答案提取与标注（2026-10-30）
 
+- 后续原生GUI补验（2026-10-30）：用户解锁桌面后，使用computer-use观察实际窗口并点击复选框；默认标注关闭、开启标注自动选中习题PDF、取消习题PDF同步取消标注，均通过，控件布局无重叠。未触发扫描/下载或改变账号与命名设置；已关闭本次测试窗口。
+- 收到此前异步问题的延迟回复“仅标注正确/参考答案”，与随后已完成的双源专项需求冲突，已发起当前规则确认。确认前不变更双源代码或覆盖历史导出文件；当前交付仍为`8c77619`双源版本。
+
 - 基线`8f6ffb8`，回退标签`before-dual-answer-extraction`。仅修改`answer_images.py`答案策略/证据、`extractor.py`逐题读取、`selectors.py`答案结果表达式、`quiz_pdf.py`答案来源校验和`gui.py`答案日志；渲染函数、下载、原图写入、课件、命名、目录、账号、扫描、调度及恢复模块均未改。依赖/run.bat保留。
 - 实际确认`section.slide-exercise`内唯一可见`span.pr12`为提交结果，`green`文字色`rgb(8,188,114)`，`red`为`rgb(248,79,65)`；得分来自同题结果区域，不读课程总分。原生字段有效时不依赖提交DOM；降级必须绿+满分+提交字母一致，未知色/红/缺失/非数字/未满分/零满分不通过，只有“全对”不造字母。
 - 策略版本2，结果来源`correct_dom`或`submission_verified`、置信等级`official`或`verified_submission`；无答案统一`answer=null,status=missing,confidence=none,reason_code=no_usable_correct_answer`，未接AI。逐题异常降级并写原因日志，不中断原图处理。答案序列及证据绑定来源指纹，恢复时校验证据，旧策略标注记录在重新执行所选任务时重查，不改普通PDF/原图。
