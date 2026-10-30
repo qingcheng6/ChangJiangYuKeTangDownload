@@ -16,6 +16,7 @@ from .files import FileProblem
 from .accounts import Accounts
 from .locking import BusyError
 from .tasks import RESOURCE_LABELS, resource_states
+from .naming import MODES
 
 STATUS = {"complete": "扫描完成", "pending": "待扫描", "scanning": "扫描中",
           "failed": "扫描失败", "incomplete": "未完成"}
@@ -63,18 +64,23 @@ class CourseApp:
         self.export_images = tk.BooleanVar(value=True)
         self.export_quiz_pdf = tk.BooleanVar(value=False)
         self.export_courseware_pdf = tk.BooleanVar(value=False)
+        self.naming_mode = tk.StringVar(value='original')
         self.feature_info = tk.StringVar(value="习题图片：待执行 · 习题PDF：待执行 · 课件PDF：待执行")
         self._build()
         self._refresh_accounts()
         self._load_settings()
+        self._load_naming_settings()
         self.load_cache()
         self.root.after(80, self._poll)
 
     def _new_worker(self):
-        return ScanWorker(self.origin, self.site_dir, self.channel,
+        worker = ScanWorker(self.origin, self.site_dir, self.channel,
                           account_id=self.account["id"] if self.account else None,
                           expected_owner=self.account.get("owner") if self.account else None,
                           layout="flat")
+        if hasattr(self, 'naming_mode'):
+            worker.set_naming_mode(self.naming_mode.get())
+        return worker
 
     def _assert_ui(self):
         if get_ident() != self.ui_thread:
@@ -170,15 +176,26 @@ class CourseApp:
         ttk.Button(choose, text="折叠全部", command=lambda: self.expand_all(False)).pack(side="left", padx=6)
         self.recovery_button = ttk.Button(choose, text="失败 / 未完成…", command=self.show_unfinished)
         self.recovery_button.pack(side="left", padx=(10, 0))
-        options = ttk.Frame(outer)
+        options = ttk.LabelFrame(outer, text='导出设置', padding=(6, 3))
         options.grid(row=6, column=0, sticky="ew", pady=(0, 6))
+        export_row = ttk.Frame(options)
+        export_row.pack(fill='x')
         self.export_checks = []
         for label, variable in (("下载习题图片", self.export_images),
                                 ("习题合并PDF", self.export_quiz_pdf),
                                 ("课件导出PDF", self.export_courseware_pdf)):
-            check = ttk.Checkbutton(options, text=label, variable=variable, command=self._update_controls)
+            check = ttk.Checkbutton(export_row, text=label, variable=variable, command=self._update_controls)
             check.pack(side="left", padx=(0, 12))
             self.export_checks.append(check)
+        naming_row = ttk.Frame(options)
+        naming_row.pack(fill='x', pady=(3, 0))
+        ttk.Label(naming_row, text='命名规则：').pack(side='left')
+        self.naming_radios = []
+        for mode, label in MODES.items():
+            radio = ttk.Radiobutton(naming_row, text=label, variable=self.naming_mode, value=mode,
+                                    command=self._naming_changed)
+            radio.pack(side='left', padx=(0, 12))
+            self.naming_radios.append(radio)
         directory = ttk.Frame(outer)
         directory.grid(row=7, column=0, sticky="ew")
         ttk.Label(directory, text="保存目录").pack(side="left")
@@ -363,6 +380,29 @@ class CourseApp:
             pass
         except (ValueError, KeyError, OSError, TypeError):
             self._append_log("目录设置无法读取，请重新选择保存目录")
+
+    def _load_naming_settings(self):
+        try:
+            mode = read_json(self.project_root / '.local/naming_settings.json').get('mode')
+            if mode not in MODES:
+                raise ValueError()
+            self.naming_mode.set(mode)
+            self.worker.set_naming_mode(mode)
+        except FileNotFoundError:
+            pass
+        except (ValueError, OSError, TypeError):
+            self._append_log('[命名] 设置无法读取，本次使用原命名；原设置文件保留')
+
+    def _naming_changed(self):
+        self._assert_ui()
+        mode = self.naming_mode.get()
+        self.worker.set_naming_mode(mode)
+        try:
+            write_json(self.project_root / '.local/naming_settings.json', dict(schema_version=1, mode=mode))
+        except OSError:
+            self._append_log('[命名] 当前选择已生效，但设置未能保存')
+        self._append_log('[命名] 已选择{}{}'.format(MODES[mode],
+            '；当前课时保持不变，下一个课时生效' if self.worker.running and self.worker.mode == 'download' else ''))
 
     def choose_directory(self):
         directory = filedialog.askdirectory(parent=self.root, title="选择导出文件保存目录",
@@ -596,9 +636,10 @@ class CourseApp:
             "保留" if self.export_images.get() else "仅临时用于PDF" if self.export_quiz_pdf.get() else "不导出", "开启" if self.export_quiz_pdf.get() else "关闭",
             "开启（仅报告可访问静态页）" if self.export_courseware_pdf.get() else "关闭"))
         directory = self.accounts.image_directory(self.account, self.save_dir.get(), layout=self.worker.layout)
+        self.worker.set_naming_mode(self.naming_mode.get())
         self.worker.start_download(tasks, directory, self.catalog["owner_fingerprint"], options=dict(
             quiz_images=self.export_images.get(), quiz_pdf=self.export_quiz_pdf.get(),
-            courseware_pdf=self.export_courseware_pdf.get()))
+            courseware_pdf=self.export_courseware_pdf.get()), catalog=self.catalog)
         self._update_controls()
 
     def resume(self):
@@ -635,7 +676,7 @@ class CourseApp:
                               self.catalog["owner_fingerprint"], self.worker.origin,
                               layout=self.worker.layout, features=[f for f, enabled in (
                                   ("quiz_images", self.export_images.get()), ("quiz_pdf", self.export_quiz_pdf.get()),
-                                  ("courseware_pdf", self.export_courseware_pdf.get())) if enabled])
+                                  ("courseware_pdf", self.export_courseware_pdf.get())) if enabled], naming_mode=self.naming_mode.get())
         except FileNotFoundError:
             self.status.set("当前目录还没有此账号的下载任务清单")
             return

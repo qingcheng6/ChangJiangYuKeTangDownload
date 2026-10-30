@@ -12,6 +12,7 @@ from .scanner import scan
 from .downloader import download
 from .files import FileProblem
 from .tasks import TaskLedger
+from .naming import NamingControl, NamingPlan, prepare_positions, valid_identifiers
 
 
 class ScanWorker:
@@ -30,6 +31,10 @@ class ScanWorker:
         self.expected_owner = expected_owner
         self.ledger = None
         self.layout = layout
+        self.naming_control = NamingControl()
+
+    def set_naming_mode(self, mode):
+        self.naming_control.set(mode)
 
     @property
     def running(self):
@@ -50,7 +55,7 @@ class ScanWorker:
         self.thread.start()
         return True
 
-    def start_download(self, tasks, directory, owner, options=None):
+    def start_download(self, tasks, directory, owner, options=None, catalog=None):
         if self.running or not tasks:
             return False
         if self.expected_owner is not None and owner != self.expected_owner:
@@ -63,7 +68,15 @@ class ScanWorker:
         if (options.get("quiz_pdf") or options.get("courseware_pdf")) and not self.account_id:
             self.post("error", "PDF任务需要本地账号ID，请从GUI启动")
             return False
-        request = dict(tasks=deepcopy(tasks), directory=Path(directory), owner=owner, options=options)
+        usable = [task for task in tasks if valid_identifiers(task.get('course_id'), task.get('lesson', {}))]
+        if len(usable) != len(tasks):
+            self.post('log', '[命名] 跳过{}个缺少有效课时/课件标识的失效记录；不占课程序号'.format(len(tasks)-len(usable)))
+        if not usable:
+            self.post('error', '所选课时没有有效入口，请重新扫描课程')
+            return False
+        request = dict(tasks=deepcopy(usable), directory=Path(directory), owner=owner, options=options)
+        prepare_positions(request['tasks'], catalog)
+        request['naming'] = NamingPlan(self.naming_control, request['tasks'])
         self.stop_event.clear()
         self.resume_event.clear()
         self.mode = "download"
@@ -196,7 +209,8 @@ class ScanWorker:
                             result = download(context, page, self.origin, request["tasks"],
                                               request["directory"], request["owner"], self.stop_event,
                                               emit, lambda value: self.post("download_progress", value),
-                                              on_lesson=self._lesson_done if self.ledger else None, layout=self.layout)
+                                              on_lesson=self._lesson_done if self.ledger else None, layout=self.layout,
+                                              naming=request.get('naming'))
                         self.post("download_result", result)
                         return
                     except NeedsHuman as exc:
@@ -218,4 +232,9 @@ class ScanWorker:
         except Exception as exc:
             self.post("error", "下载异常（{}），请检查浏览器或本地环境".format(type(exc).__name__))
         finally:
+            if request.get('naming'):
+                try:
+                    request['naming'].finish_pending(request, self.origin, self.layout)
+                except Exception as exc:
+                    self.post('error', '[命名] 未开始课时的路径待办保存失败（{}），已保留历史文件'.format(type(exc).__name__))
             self.post("finished", None)

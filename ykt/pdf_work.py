@@ -9,11 +9,14 @@ from .files import Manifest, FileProblem, image_info
 from .locking import LocalLock
 from .storage import read_json, write_json
 from .browser import check_stop
+from .naming import lesson_key, base_lesson_key
 
 
 class PdfWork:
     def __init__(self, site_dir, account_id, task, owner, origin, purpose="quiz_pdf_temporary_images"):
         identity = str(site_dir.resolve()) + ":" + account_id + ":" + task["course_id"] + ":" + task["lesson"]["id"] + ":" + task["lesson"]["courseware_id"]
+        if lesson_key(task) != base_lesson_key(task):
+            identity += ':' + lesson_key(task)
         self.key = hashlib.sha256((identity if purpose == "quiz_pdf_temporary_images" else identity + ":" + purpose).encode()).hexdigest()
         self.base = (Path(tempfile.gettempdir()) / "ykt_pdf_work").resolve()
         self.root = self.base / self.key
@@ -46,7 +49,7 @@ class PdfWork:
         if target.path.exists() or not source.path.exists():
             return
         data = source.read_existing()
-        key = self.task["course_id"] + ":" + self.task["lesson"]["id"] + ":" + self.task["lesson"]["courseware_id"]
+        key = lesson_key(self.task)
         old = data["lessons"].get(key)
         if not old:
             return

@@ -12,6 +12,7 @@ from .browser import NeedsHuman, PageChanged, Stopped, check_stop, ensure_login
 from .extractor import extract_lesson
 from .files import FileProblem, Manifest, image_info
 from .scanner import course_catalog
+from .naming import lesson_key
 
 
 def resource_key(url):
@@ -108,7 +109,7 @@ def verify_account(page, origin, owner, stop, emit):
 
 
 def download(context, page, origin, tasks, directory, owner, stop, emit, on_progress=None,
-             on_lesson=None, layout="legacy"):
+             on_lesson=None, layout="legacy", naming=None):
     verify_account(page, origin, owner, stop, emit)
     result = dict(total=len(tasks), completed=0, success=0, failed=0, status="running",
                   downloaded=0, skipped=0, image_failed=0, no_images=0,
@@ -124,8 +125,10 @@ def download(context, page, origin, tasks, directory, owner, stop, emit, on_prog
         try:
             for task in tasks:
                 check_stop(stop)
+                if naming:
+                    naming.bind(task, emit)
                 lesson = manifest.lesson(task)
-                started_tasks.add(task["course_id"] + ":" + task["lesson"]["id"] + ":" + task["lesson"]["courseware_id"])
+                started_tasks.add(lesson_key(task))
                 lesson["status"] = "running"
                 lesson.pop("error", None)
                 lesson.pop("error_type", None)
@@ -167,7 +170,7 @@ def download(context, page, origin, tasks, directory, owner, stop, emit, on_prog
                             record.update(order=order, slide_id=resource["slide_id"], page=resource["page"])
                             if manifest.verified(record):
                                 result["skipped"] += 1
-                                emit("图片 {}/{}：文件完整，已跳过".format(order, len(unique)))
+                                emit("图片 {}/{}：文件完整，已跳过 {}".format(order, len(unique), record['path']))
                                 report()
                                 continue
                             record["status"] = "pending"
@@ -199,7 +202,7 @@ def download(context, page, origin, tasks, directory, owner, stop, emit, on_prog
                                     record.pop("error", None)
                                     manifest.save()
                                     emit("图片 {}/{}：{}".format(order, len(unique),
-                                         "相同内容已去重" if duplicate else "已保存 " + Path(record["path"]).name))
+                                         "相同内容已去重 " + record['path'] if duplicate else "已保存 " + record["path"]))
                                     success = True
                                     break
                                 except (NeedsHuman, Stopped):
@@ -263,7 +266,7 @@ def download(context, page, origin, tasks, directory, owner, stop, emit, on_prog
         finally:
             if on_lesson is not None:
                 for task in tasks:
-                    key = task["course_id"] + ":" + task["lesson"]["id"] + ":" + task["lesson"]["courseware_id"]
+                    key = lesson_key(task)
                     if key in started_tasks:
                         on_lesson(task, dict(manifest.data["lessons"][key]))
             manifest.data["last_run"] = dict(result)

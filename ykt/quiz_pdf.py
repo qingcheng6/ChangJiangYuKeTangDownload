@@ -14,7 +14,8 @@ from pypdf.generic import (ContentStream, DecodedStreamObject, DictionaryObject,
                           EncodedStreamObject, NameObject, NumberObject)
 
 from .browser import Stopped, check_stop
-from .files import FileProblem, image_info, safe_name, units
+from .files import FileProblem, image_info, safe_name, safe_prefixed_name, units
+from .naming import lesson_key, named
 
 A4 = (595.275591, 841.889764)
 PDF_VERSION = 1
@@ -171,21 +172,24 @@ def pdf_path(manifest, task, lesson, metadata, suffix="_习题合集.pdf"):
         raise FileProblem("PDF文件路径过长，请选择较短保存目录")
     # The reserved lesson component also distinguishes same-name PDF-only
     # lessons, for which no image directory will ever be created.
-    label = Path(lesson["directory"]).name if manifest.layout == "flat" else task["lesson"]["name"]
-    base = safe_name(label, budget)
+    prefix = task.get('_naming', {}).get('prefix', '')
+    label = Path(lesson["directory"]).name if manifest.layout == "flat" else named(task, task["lesson"]["name"])
+    raw = label[len(prefix):] if prefix else label
+    base = safe_prefixed_name(raw, prefix, budget)
     candidate = parent / (base + suffix)
     number = 0
     while candidate.exists():
         number += 1
         extra = "_" + hashlib.sha256((task["course_id"] + ":" + task["lesson"]["id"] + ":" + str(number)).encode()).hexdigest()[:8]
-        candidate = parent / (safe_name(base, budget - len(extra)) + extra + suffix)
+        raw_base = base[len(prefix):] if prefix else base
+        candidate = parent / (safe_prefixed_name(raw_base, prefix, budget - len(extra)) + extra + suffix)
     manifest.resolve(str(candidate.relative_to(manifest.root)))
     return candidate
 
 
 def merge_lesson(target, task, source, source_lesson, stop, emit):
     """Caller holds the target Manifest lock; image status is never overwritten."""
-    key = task["course_id"] + ":" + task["lesson"]["id"] + ":" + task["lesson"]["courseware_id"]
+    key = lesson_key(task)
     new = key not in target.data["lessons"]
     lesson = target.lesson(task)
     if new:
@@ -202,7 +206,7 @@ def merge_lesson(target, task, source, source_lesson, stop, emit):
         result["resource_state"] = "available"
         if metadata.get("fingerprint") == fingerprint and verified_pdf(target, metadata, stop):
             result.update(metadata, skipped=True, error=None, error_type=None)
-            emit("PDF完整、页序与来源一致，已跳过")
+            emit("PDF完整、页序与来源一致，已跳过：" + metadata['path'])
             return result
         path = pdf_path(target, task, lesson, metadata)
         metadata.update(path=str(path.relative_to(target.root)), status="pending", fingerprint=fingerprint)
@@ -225,7 +229,7 @@ def merge_lesson(target, task, source, source_lesson, stop, emit):
                 result.update(metadata, skipped=False)
                 for message in conversions:
                     emit("转换记录：" + message)
-                emit("已保存习题合集，{}页".format(len(paths)))
+                emit("已保存习题合集，{}页：{}".format(len(paths), metadata['path']))
                 return result
             except Stopped:
                 raise

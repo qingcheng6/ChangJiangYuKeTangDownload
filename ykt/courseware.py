@@ -13,6 +13,7 @@ from .downloader import resource_key, _fetch, _atomic_image
 from .files import FileProblem, Manifest, image_info
 from .pdf_work import PdfWork
 from .quiz_pdf import A4, write_pdf, validate_pdf, sha_file, pdf_path
+from .naming import lesson_key, base_lesson_key
 
 
 def ordered_slides(slides):
@@ -170,7 +171,8 @@ def verified_courseware(manifest, meta, stop, task=None):
 def export_courseware(context,page,origin,task,directory,owner,site_dir,account_id,layout,stop,emit):
     """One authorized lesson; failures remain independent of quiz products."""
     with Manifest(directory,owner,origin,layout=layout) as target:
-        key=task['course_id']+':'+task['lesson']['id']+':'+task['lesson']['courseware_id']
+        key=lesson_key(task)
+        bound_key=base_lesson_key(task)
         new=key not in target.data['lessons']
         lesson=target.lesson(task)
         if new: lesson['status']='pdf_only'
@@ -181,18 +183,18 @@ def export_courseware(context,page,origin,task,directory,owner,site_dir,account_
         try:
             resources=extract_courseware(page,origin,task,stop,emit)
             sequence=[dict(slide_id=r['slide_id'],page=r['page'],resource_id=resource_key(r['candidates'][0])) for r in resources]
-            fingerprint=hashlib.sha256(json.dumps(dict(version=COURSEWARE_VERSION,lesson_key=key,sequence=sequence),sort_keys=True).encode()).hexdigest()
+            fingerprint=hashlib.sha256(json.dumps(dict(version=COURSEWARE_VERSION,lesson_key=bound_key,sequence=sequence),sort_keys=True).encode()).hexdigest()
             if not resources:
                 meta.update(status='no_images',pages=0,error=None,error_type=None)
                 result.update(status='no_images',resource_state='absent')
                 return result
             result['resource_state']='available'
             if meta.get('fingerprint')==fingerprint and verified_courseware(target,meta,stop,task):
-                emit('已核对页面范围和本地PDF，完整跳过')
+                emit('已核对页面范围和本地PDF，完整跳过：' + meta['path'])
                 return dict(meta,resource_state='available',skipped=True)
             path=pdf_path(target,task,lesson,meta,suffix='_课件.pdf')
             meta.update(status='running',path=str(path.relative_to(target.root)),fingerprint=fingerprint,
-                        scope='report_static_pages',sequence=sequence,lesson_key=key)
+                        scope='report_static_pages',sequence=sequence,lesson_key=bound_key)
             target.save()
             with PdfWork(site_dir,account_id,task,owner,origin,purpose=PURPOSE) as work:
                 paths=[]
@@ -244,7 +246,7 @@ def export_courseware(context,page,origin,task,directory,owner,site_dir,account_
                         target.save();work.discard=True
                         for note in conversions:
                             emit('转换记录：'+note)
-                        emit('已保存课件PDF，{}页；仅包含报告已提供的静态页'.format(len(sequence)))
+                        emit('已保存课件PDF，{}页；仅包含报告已提供的静态页：{}'.format(len(sequence), meta['path']))
                         return dict(meta,resource_state='available',skipped=False)
                     except Stopped: raise
                     except Exception as exc:

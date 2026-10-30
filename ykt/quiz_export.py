@@ -6,6 +6,7 @@ from .downloader import download, verify_account
 from .files import Manifest
 from .pdf_work import PdfWork
 from .quiz_pdf import merge_lesson, verified_pdf
+from .naming import lesson_key
 
 
 def _record_pending_pdfs(request, origin, layout, features):
@@ -13,9 +14,13 @@ def _record_pending_pdfs(request, origin, layout, features):
     with Manifest(request["directory"], request["owner"], origin, layout=layout) as formal:
         changed = False
         for task in request["tasks"]:
-            key = task["course_id"] + ":" + task["lesson"]["id"] + ":" + task["lesson"]["courseware_id"]
+            key = lesson_key(task)
             new = key not in formal.data["lessons"]
+            count = len(formal.data['lessons'])
             lesson = formal.lesson(task)
+            changed |= len(formal.data['lessons']) != count
+            if new and request.get('naming'):
+                task.setdefault('_naming_created_pending', []).append(key)
             if new and not request["options"].get("quiz_images"):
                 lesson["status"] = "pdf_only"
             changed |= new
@@ -25,6 +30,8 @@ def _record_pending_pdfs(request, origin, layout, features):
                     changed = True
         if changed:
             formal.save()
+        if request.get('naming'):
+            request['naming'].registered = True
 
 
 def export_quizzes(context, page, origin, request, site_dir, account_id, layout, stop,
@@ -38,11 +45,13 @@ def export_quizzes(context, page, origin, request, site_dir, account_id, layout,
     try:
         for task in request["tasks"]:
             check_stop(stop)
+            if request.get('naming'):
+                request['naming'].bind(task, emit)
             result.update(current_course=task["course_name"], current_lesson=task["lesson"]["name"])
             progress(dict(result))
             prefix = "[习题PDF] {} / {}：".format(" ".join(task["course_name"].split()), " ".join(task["lesson"]["name"].split()))
             target = Manifest(request["directory"], request["owner"], origin, layout=layout)
-            key = task["course_id"] + ":" + task["lesson"]["id"] + ":" + task["lesson"]["courseware_id"]
+            key = lesson_key(task)
             # Valid tracked PDF-only results need no temporary images or image
             # requests. Ownership was verified above; existence alone is never enough.
             if not keep_images and target.path.exists():
@@ -50,7 +59,7 @@ def export_quizzes(context, page, origin, request, site_dir, account_id, layout,
                     old = formal.data["lessons"].get(key, {}).get("quiz_pdf", {})
                     if verified_pdf(formal, old, stop):
                         feature_done(task, "quiz_pdf", dict(old, resource_state="available", skipped=True))
-                        emit(prefix + "PDF完整且任务已完成，跳过；未创建临时图片")
+                        emit(prefix + "PDF完整且任务已完成，跳过；未创建临时图片：" + old['path'])
                         result["completed"] += 1
                         result["success"] += 1
                         progress(dict(result))
@@ -70,7 +79,7 @@ def export_quizzes(context, page, origin, request, site_dir, account_id, layout,
                 images = download(context, page, origin, [task], source_directory, request["owner"],
                     stop, lambda message: emit(("[临时习题图片] " if work else "[习题图片] ") + message),
                     on_progress=transfer_update, on_lesson=image_done if keep_images else None,
-                    layout=source_layout)
+                    layout=source_layout, naming=request.get('naming'))
                 for metric in ("downloaded", "skipped", "image_failed", "no_images"):
                     result[metric] += images[metric]
                 if images["status"] == "stopped":

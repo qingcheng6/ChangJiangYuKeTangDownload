@@ -11,6 +11,7 @@ from pathlib import Path
 from PIL import Image, ImageFile, UnidentifiedImageError
 
 from .storage import read_json, write_json
+from .naming import MODES, lesson_key, named
 
 ImageFile.LOAD_TRUNCATED_IMAGES = False
 EXTENSIONS = {"JPEG": ".jpg", "PNG": ".png", "GIF": ".gif", "WEBP": ".webp",
@@ -62,6 +63,12 @@ def image_info(data):
     except (OSError, ValueError, SyntaxError, UnidentifiedImageError,
             Image.DecompressionBombError, Image.DecompressionBombWarning):
         raise FileProblem("图片内容损坏、截断或无法可靠解码") from None
+
+
+def safe_prefixed_name(label, prefix, budget):
+    if prefix and budget - units(prefix) < 3:
+        raise FileProblem('命名前缀与文件名空间不足，请选择较短保存目录')
+    return prefix + safe_name(label, budget - units(prefix))
 
 
 class Manifest:
@@ -144,6 +151,11 @@ class Manifest:
             for lesson in data["lessons"].values():
                 if not isinstance(lesson, dict) or not isinstance(lesson.get("resources"), dict):
                     raise ValueError()
+                if 'naming' in lesson:
+                    naming = lesson['naming']
+                    if (not isinstance(naming, dict) or naming.get('mode') not in MODES or
+                            not isinstance(naming.get('prefix'), str) or not isinstance(naming.get('warning', ''), str)):
+                        raise ValueError()
                 for field in ("course_id", "lesson_id", "course_name", "lesson_name", "status"):
                     if not isinstance(lesson.get(field), str):
                         raise ValueError()
@@ -183,23 +195,35 @@ class Manifest:
         return path
 
     def lesson(self, task):
-        key = task["course_id"] + ":" + task["lesson"]["id"] + ":" + task["lesson"]["courseware_id"]
+        key = lesson_key(task)
+        previous = task.get('_naming_previous_key')
+        if previous in task.get('_naming_created_pending', []):
+            old = self.data['lessons'].get(previous)
+            if (old and not old['resources'] and old.get('directory') is None and
+                    old['status'] in ('pending', 'pdf_only') and
+                    all(old.get(f, {}).get('status', 'pending') == 'pending' for f in ('quiz_pdf', 'courseware_pdf'))):
+                del self.data['lessons'][previous]
         return self.data["lessons"].setdefault(key, dict(
             course_id=task["course_id"], lesson_id=task["lesson"]["id"],
             course_name=task["course_name"], lesson_name=task["lesson"]["name"],
-            status="pending", resources={}, directory=None))
+            status="pending", resources={}, directory=None,
+            **({'naming': dict(task['_naming'])} if task.get('_naming') else {})))
 
-    def _component(self, parent, label, identity, used):
-        value = safe_name(label, self.budget)
+    def _component(self, parent, label, identity, used, prefix=''):
+        value = safe_prefixed_name(label, prefix, self.budget)
         reserved = {name.casefold() for name in used}
         if value.casefold() in reserved or (parent / value).exists():
-            suffix = "_" + hashlib.sha256(identity.encode()).hexdigest()[:8]
-            value = safe_name(label, self.budget - len(suffix)) + suffix
+            length = min(8, self.budget - units(prefix) - 4) if prefix else 8
+            if length < 1:
+                raise FileProblem('命名前缀与重名标识空间不足，请选择较短保存目录')
+            suffix = "_" + hashlib.sha256(identity.encode()).hexdigest()[:length]
+            value = safe_prefixed_name(label, prefix, self.budget - len(suffix)) + suffix
         counter = 1
         initial = value
         while value.casefold() in reserved or (parent / value).exists():
             suffix = "_" + str(counter)
-            value = safe_name(initial, self.budget - len(suffix)) + suffix
+            stem = initial[len(prefix):] if prefix else initial
+            value = safe_prefixed_name(stem, prefix, self.budget - len(suffix)) + suffix
             counter += 1
         return value
 
@@ -218,7 +242,8 @@ class Manifest:
         identity = task["lesson"]["id"]
         if self.layout == "flat":
             identity += ":" + task["lesson"]["courseware_id"]
-        name = self._component(parent, task["lesson"]["name"], identity, used)
+        name = self._component(parent, task["lesson"]["name"], identity, used,
+                               prefix=task.get('_naming', {}).get('prefix', ''))
         lesson["directory"] = str(parent.relative_to(self.root) / name)
         return self.resolve(lesson["directory"])
 
@@ -251,7 +276,7 @@ class Manifest:
         existing = record.get("path")
         if existing and self.resolve(existing).suffix.lower() == info["extension"]:
             return self.resolve(existing)
-        base = "习题_{:03d}".format(order)
+        base = named(task, "习题_{:03d}".format(order))
         path = parent / (base + info["extension"])
         other_paths = {r.get("path") for r in lesson["resources"].values() if r is not record}
         count = 0

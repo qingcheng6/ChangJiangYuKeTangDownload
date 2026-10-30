@@ -14,6 +14,8 @@ def export_resources(context,page,origin,request,site_dir,account_id,layout,stop
     try:
         for task in request['tasks']:
             check_stop(stop)
+            if request.get('naming'):
+                request['naming'].bind(task,emit)
             result.update(current_course=task['course_name'],current_lesson=task['lesson']['name'])
             progress(dict(result))
             successful=True
@@ -27,7 +29,7 @@ def export_resources(context,page,origin,request,site_dir,account_id,layout,stop
                                         stop,emit,image_done,feature_done,transfer)
                 else:
                     quiz=download(context,page,origin,[task],request['directory'],request['owner'],stop,emit,
-                                  on_progress=transfer,on_lesson=image_done,layout=layout)
+                                  on_progress=transfer,on_lesson=image_done,layout=layout,naming=request.get('naming'))
                 for metric in ('downloaded','skipped','image_failed','no_images'):result[metric]+=quiz[metric]
                 if quiz['status']=='stopped':raise Stopped()
                 successful=quiz['failed']==0

@@ -3,12 +3,14 @@
 from .files import Manifest
 
 
-def unfinished(directory, owner, origin, layout="legacy", features=None):
+def unfinished(directory, owner, origin, layout="legacy", features=None, naming_mode='original'):
     manifest = Manifest(directory, owner, origin, layout=layout)
     data = manifest.read_existing()
     results = []
     features = {"quiz_images"} if features is None else set(features)
     for lesson in data["lessons"].values():
+        if lesson.get('naming', {}).get('mode', 'original') != naming_mode:
+            continue
         reasons = []
         image_unfinished = False
         if "quiz_images" in features and lesson["status"] != "pdf_only":
