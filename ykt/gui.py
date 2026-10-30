@@ -647,7 +647,7 @@ class CourseApp:
             "保留" if self.export_images.get() else "仅临时用于PDF" if self.export_quiz_pdf.get() else "不导出", "开启" if self.export_quiz_pdf.get() else "关闭",
             "开启（仅报告可访问静态页）" if self.export_courseware_pdf.get() else "关闭"))
         if self.export_answers.get():
-            self._append_log('[答案] 仅使用网页明确显示的正确/参考答案；提交答案与得分不作为标准答案')
+            self._append_log('[答案] 优先原生正确/参考答案；缺失时仅采用绿色提交选项且该题满分的答案')
         directory = self.accounts.image_directory(self.account, self.save_dir.get(), layout=self.worker.layout)
         self.worker.set_naming_mode(self.naming_mode.get())
         self.worker.start_download(tasks, directory, self.catalog["owner_fingerprint"], options=dict(

@@ -8,12 +8,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def main():
     files = [ROOT / name for name in ("run.bat", "bootstrap.py", "main.py", "requirements.txt",
-                                      "README.md", "TEST_REPORT.md", "V21_TEST_REPORT.md", "COURSEWARE_BATCH_TEST_REPORT.md", "NAMING_V23_TEST_REPORT.md", "NATIVE_ANSWERS_TEST_REPORT.md", "V1_TEST_REPORT.md",
+                                      "README.md", "TEST_REPORT.md", "V21_TEST_REPORT.md", "COURSEWARE_BATCH_TEST_REPORT.md", "NAMING_V23_TEST_REPORT.md", "NATIVE_ANSWERS_TEST_REPORT.md", "DUAL_ANSWERS_TEST_REPORT.md", "V1_TEST_REPORT.md",
                                       "V2_STAGE0_BASELINE.md", "V2_STAGE1.md", "V2_STAGE2.md", "V2_STAGE3.md",
                                       "tests/test_delivery.py", "tests/test_v2_delivery.py", "tests/test_layout_v21.py", "tests/test_courseware_batch.py", "tests/test_naming_v23.py",
-                                      "tests/test_answer_images.py", "tests/test_answer_pdf.py", "tests/test_answer_workflow.py")]
+                                      "tests/test_answer_images.py", "tests/test_answer_pdf.py", "tests/test_answer_workflow.py", "tests/test_answer_inference.py")]
     files += sorted((ROOT / "ykt").glob("*.py"))
-    output = ROOT / "dist/yuketang_resource_exporter_v2.3_answers.zip"
+    output = ROOT / "dist/yuketang_resource_exporter_v2.3_dual_answers.zip"
     output.parent.mkdir(exist_ok=True)
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
         for file in files:

@@ -5,12 +5,13 @@ import json
 import re
 import unicodedata
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from .files import FileProblem
 
-ANNOTATION_VERSION = 1
+ANNOTATION_VERSION = 2
 ANSWER_FIELD = 'quiz_pdf_answers'
 
 
@@ -53,6 +54,60 @@ def read_native_answer(text):
         return dict(answer=values[0], source='correct_dom', status='available', reason=None)
     return dict(answer=None, source='correct_dom', status='missing',
                 reason='多个答案字段不一致，未猜测' if values else '未显示可识别的正确/参考答案')
+
+
+def missing_answer(reason):
+    # Stable state for later answer providers; no AI provider is implemented.
+    return dict(answer=None, source='none', status='missing', confidence='none',
+                reason_code='no_usable_correct_answer', reason=reason)
+
+
+def full_score(value):
+    if not isinstance(value,str):
+        return False
+    parts=unicodedata.normalize('NFKC',value).strip().split('/')
+    if len(parts)!=2 or any(not re.fullmatch(r'\d+(?:\.\d+)?',p.strip()) for p in parts):
+        return False
+    try:
+        actual,total=(Decimal(p.strip()) for p in parts)
+        return total>0 and actual==total
+    except InvalidOperation:
+        return False
+
+
+def infer_submission(evidence):
+    if not isinstance(evidence,dict) or evidence.get('visible') is not True:
+        return missing_answer('提交结果区域缺失或不可见')
+    classes=evidence.get('classes')
+    if (not isinstance(classes,list) or 'green' not in classes or 'red' in classes or
+            evidence.get('color')!='rgb(8, 188, 114)'):
+        return missing_answer('提交选项不是已验证的绿色样式')
+    choice=normalize_choice(evidence.get('submitted'))
+    if choice is None or choice!=normalize_choice(evidence.get('result_text')):
+        return missing_answer('提交选项字母缺失或与结果元素不一致')
+    if not full_score(evidence.get('score')):
+        return missing_answer('该题得分缺失、格式无效或未满分')
+    return dict(answer=choice, source='submission_verified', status='available',
+                confidence='verified_submission', reason=None, evidence=dict(evidence))
+
+
+def select_answer(text, evidence=None):
+    native=read_native_answer(text)
+    if native['answer'] is not None:
+        return dict(native,confidence='official')
+    return infer_submission(evidence)
+
+
+def trusted_answer(mapping):
+    answer=normalize_choice(mapping.get('answer'))
+    if mapping.get('status')!='available' or answer is None or answer!=mapping.get('answer'):
+        return False
+    if mapping.get('source')=='correct_dom':
+        return True
+    if mapping.get('source')=='submission_verified' and mapping.get('confidence')=='verified_submission':
+        inferred=infer_submission(mapping.get('evidence'))
+        return inferred['answer']==answer and inferred['status']=='available'
+    return False
 
 
 def _font(size):
@@ -124,10 +179,12 @@ def annotated_sources(paths, sequence, mappings):
                 any(mapping.get(k) != occurrence[k] for k in ('resource_id', 'slide_id', 'page'))):
             raise FileProblem('答案与习题图片顺序不匹配，未生成可能错位的标注PDF')
         answer = normalize_choice(mapping.get('answer')) if mapping.get('status') == 'available' else None
-        if answer is not None and mapping.get('source') != 'correct_dom':
+        if answer is not None and not trusted_answer(mapping):
             raise FileProblem('答案来源尚未验证，未标注')
         output.append(AnswerImage(path, answer) if answer else path)
         identity.append(dict(occurrence, answer=answer, source=mapping.get('source'),
-                             status='available' if answer else 'missing'))
+                             status='available' if answer else 'missing',
+                             confidence=('official' if mapping.get('source')=='correct_dom' else mapping.get('confidence')) if answer else 'none',
+                             **({'evidence':mapping['evidence']} if answer and mapping.get('source')=='submission_verified' else {})))
         marked += int(answer is not None)
     return output, identity, dict(annotated_pages=marked, missing_answers=len(sequence)-marked)

@@ -1,8 +1,18 @@
 # 雨课堂习题图片下载工具：项目状态
 
-更新时间：2026-10-30（Asia/Shanghai）。V2.3基础上增量加入原生答案标注开关、内存标注和独立PDF恢复；全量104项回归通过。真实14页仅显示个人提交答案，正确/参考答案均缺失，已验证不误标和旧产物不变；标准答案阳性DOM仍待真实课时补验，不能宣称已完成答案提取端到端验收。保留命名热切换、V2.1平铺目录及课件修复。详见NATIVE_ANSWERS_TEST_REPORT.md。
+更新时间：2026-10-30（Asia/Shanghai）。答案专项已按用户新授权升级为双源自动判定：原生标准答案优先，缺失时仅绿色提交选项+本题满分+字母一致通过；真实14页标注7页、无可用答案7页。113项全量回归、独立解压包63项及13种本地DOM边界通过。原生标准答案阳性、网格排版兼容仍未验收；详情见DUAL_ANSWERS_TEST_REPORT.md。
 
-## 当前增量：网页原生答案标注（2026-10-30）
+## 当前专项：双源答案提取与标注（2026-10-30）
+
+- 基线`8f6ffb8`，回退标签`before-dual-answer-extraction`。仅修改`answer_images.py`答案策略/证据、`extractor.py`逐题读取、`selectors.py`答案结果表达式、`quiz_pdf.py`答案来源校验和`gui.py`答案日志；渲染函数、下载、原图写入、课件、命名、目录、账号、扫描、调度及恢复模块均未改。依赖/run.bat保留。
+- 实际确认`section.slide-exercise`内唯一可见`span.pr12`为提交结果，`green`文字色`rgb(8,188,114)`，`red`为`rgb(248,79,65)`；得分来自同题结果区域，不读课程总分。原生字段有效时不依赖提交DOM；降级必须绿+满分+提交字母一致，未知色/红/缺失/非数字/未满分/零满分不通过，只有“全对”不造字母。
+- 策略版本2，结果来源`correct_dom`或`submission_verified`、置信等级`official`或`verified_submission`；无答案统一`answer=null,status=missing,confidence=none,reason_code=no_usable_correct_answer`，未接AI。逐题异常降级并写原因日志，不中断原图处理。答案序列及证据绑定来源指纹，恢复时校验证据，旧策略标注记录在重新执行所选任务时重查，不改普通PDF/原图。
+- 真实工程经济学14页前7答案`D/ABC/A/B/A/ABC/B`，后7无可用字母或校验失败。普通、双源、双源重跑、已完成PDF-only重跑四轮通过；14页PDF/7标注/7不标注，后续下载数0，原图及普通PDF字节/mtime未变。逐页检查标注图原题像素及未标注页原JPEG嵌入字节；Poppler渲染前2页目视通过。私有证据`.local/answer_dual`不打包。
+- 新增7项推断测试、2项PDF策略/证据测试，全量113项通过；另13种本地HTML边界通过。47文件源码ZIP CRC/SHA/逐文件一致性通过，独立解压63项通过，pip/diff检查通过、无Tk线程回收异常。初次QA比较发现pypdf便利提取JPEG会重编码，已改检查实际嵌入字节和原图解码像素，未修改生产PDF写入来适配测试。
+- 限制：原生标准答案阳性DOM仍仅本地验证；项目尚无多题网格排版模块，保留标注图序列接口，不宣称网格兼容实测；未重新在线遍历所有账号/课时/组合；其他样式或字段结构保守缺失。PDF-only完整时不刷新页面答案，沿原机制可移走对应标注PDF或用图片+PDF重查。
+- 交付`dist/yuketang_resource_exporter_v2.3_dual_answers.zip`及SHA-256，保留原答案版及V2.3包；更新README与DUAL_ANSWERS_TEST_REPORT.md。本专项完成后停止，不提前开发网格或AI模块。
+
+## 上轮增量：网页原生答案标注（历史记录）
 
 - 基线`9f9ce53`，回退标签`before-native-answer-annotation`；配置/任务元数据备份`.local/answers/metadata_before.zip`已CRC校验，不含浏览器资料。基线87项、增量后104项通过；沿用依赖与run.bat，账号/扫描/课件/命名模块未修改。
 - 新增`ykt/answer_images.py`，局部扩展`extractor.py`、`downloader.py`、`quiz_pdf.py`、`quiz_export.py`、`files.py`、`recovery.py`、`gui.py`。可选参数默认False，原下载接口兼容。另增3个测试文件共17项、真实DOM探查/负例验收工具、专项报告及README/打包清单更新。

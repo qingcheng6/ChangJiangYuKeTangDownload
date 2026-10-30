@@ -8,7 +8,7 @@ from playwright.sync_api import Error, TimeoutError
 from . import selectors as S
 from .browser import NeedsHuman, PageChanged, check_stop, navigate, wait_condition
 from .scanner import valid_id
-from .answer_images import read_native_answer
+from .answer_images import read_native_answer, select_answer, missing_answer
 
 
 class ReportWatch:
@@ -100,6 +100,19 @@ def _wait_state(page, frame, watch, course_id, stop, selected=False, all_slides=
     raise TimeoutError("习题报告加载状态等待超时")
 
 
+def answer_for_item(item):
+    """A failed answer read must not discard the question's original image."""
+    try:
+        text=item.inner_text(timeout=5000)
+        official=read_native_answer(text)
+        evidence=None if official['answer'] else item.evaluate(S.QUIZ_ANSWER_RESULT,timeout=5000)
+        return select_answer(text,evidence)
+    except Exception as exc:
+        # Only local, read-only answer operations are inside this block; image
+        # extraction and the outer stop/auth controls keep their original path.
+        return missing_answer('本题答案读取异常（{}）'.format(type(exc).__name__))
+
+
 def extract_lesson(page, origin, task, stop, emit, answers=False):
     """Returns ordered authorized resource candidates; never persists URLs."""
     cid = valid_id(task["course_id"])
@@ -150,12 +163,14 @@ def extract_lesson(page, origin, task, stop, emit, answers=False):
                     data = item.evaluate(S.QUIZ_RESOURCE_DATA)
                     native = None
                     if answers:
-                        # Read visible text in this already-verified question
-                        # item. Never read hidden answer APIs or infer from score.
-                        native = read_native_answer(item.inner_text())
+                        native=answer_for_item(item)
                         if len(data['resources']) != 1:
-                            native = dict(answer=None, source='correct_dom', status='missing',
-                                          reason='单个题目区域不只一张图，答案归属无法唯一确认')
+                            native=missing_answer('单个题目区域不只一张图，答案归属无法唯一确认')
+                        emit('[答案] {} / {} 第{}题：{}'.format(
+                            ' '.join(task['course_name'].split()),' '.join(lesson['name'].split()),index+1,
+                            ('原生标准答案 '+native['answer'] if native['source']=='correct_dom' else
+                             '绿色选项且满分，可信答案 '+native['answer']) if native['status']=='available' else
+                            '无可用正确答案（'+native['reason']+'）'))
                     unsupported.extend(data["unsupported"])
                     if not data["resources"]:
                         unsupported.append("习题页没有可提取图片，未导出截图")

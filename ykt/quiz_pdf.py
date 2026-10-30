@@ -17,7 +17,7 @@ from .browser import Stopped, check_stop
 from .files import FileProblem, image_info, safe_name, safe_prefixed_name, units
 from .naming import lesson_key, named
 from .answer_images import (ANNOTATION_VERSION, ANSWER_FIELD, annotated_sources,
-                           annotated_fingerprint, normalize_choice)
+                           annotated_fingerprint, trusted_answer)
 
 A4 = (595.275591, 841.889764)
 PDF_VERSION = 1
@@ -144,7 +144,7 @@ def verified_pdf(manifest, metadata, stop=None, answers=False):
                 and metadata['annotated_pages'] + metadata['missing_answers'] == metadata.get('pages')
                 and isinstance(mapping, list) and len(mapping) == metadata.get('pages')
                 and all(isinstance(row, dict) and (row.get('answer') is None or
-                    (normalize_choice(row['answer']) == row['answer'] and row.get('source') == 'correct_dom'))
+                    trusted_answer(row))
                     for row in mapping)
                 and sum(row.get('answer') is not None for row in mapping) == metadata['annotated_pages']
                 and isinstance(metadata.get('source_fingerprint'),str)

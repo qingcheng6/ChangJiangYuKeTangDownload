@@ -1,5 +1,6 @@
 """Variant/resume tests with explicit local answer fixtures, not live answers."""
 import hashlib
+from copy import deepcopy
 import io
 import tempfile
 import unittest
@@ -9,6 +10,7 @@ from unittest.mock import patch
 
 from PIL import Image
 from ykt.answer_images import ANSWER_FIELD
+from ykt.answer_images import infer_submission,ANNOTATION_VERSION,annotated_fingerprint
 from ykt.browser import Stopped
 from ykt.downloader import _atomic_image
 from ykt.files import Manifest, image_info
@@ -115,6 +117,28 @@ class AnswerPdfTests(unittest.TestCase):
         self.assertEqual(self.merge(True)['status'],'no_images')
         self.assertFalse(list((self.root/'output').rglob('*.pdf')))
         self.assertFalse(list((self.root/'output').rglob('习题图片')))
+
+    def test_inferred_pdf_revalidates_double_evidence_even_with_valid_file_hash(self):
+        evidence=dict(result_text='AB',submitted='AB',classes=['pr12','green'],
+                      color='rgb(8, 188, 114)',visible=True,score='2/2')
+        self.lesson['native_answers'][0].update(infer_submission(evidence))
+        marked=self.merge(True)
+        self.assertTrue(verified_pdf(self.target,marked,answers=True))
+        corrupt=deepcopy(marked);corrupt['answer_mapping'][0]['evidence']['score']='1/2'
+        corrupt['fingerprint']=annotated_fingerprint(corrupt['source_fingerprint'],corrupt['answer_mapping'])
+        self.assertFalse(verified_pdf(self.target,corrupt,answers=True))
+        self.assertEqual(marked['answer_mapping'][0]['source'],'submission_verified')
+
+    def test_previous_answer_policy_does_not_skip_new_dual_source_check(self):
+        marked=self.merge(True)
+        with self.target as target:
+            target.data['lessons']['1:2:3'][ANSWER_FIELD]['annotation_version']=1
+            target.save()
+        old=dict(marked,annotation_version=1)
+        self.assertFalse(verified_pdf(self.target,old,answers=True))
+        refreshed=self.merge(True)
+        self.assertEqual(refreshed['annotation_version'],ANNOTATION_VERSION)
+        self.assertFalse(refreshed['skipped'])
 
 
 if __name__=='__main__':unittest.main()
