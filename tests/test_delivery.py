@@ -30,12 +30,12 @@ class DeliveryTests(unittest.TestCase):
         self.temp.cleanup()
 
     def test_all_production_code_has_python39_syntax(self):
-        for path in [ROOT / "main.py", ROOT / "bootstrap.py"] + list((ROOT / "ykt").glob("*.py")):
+        for path in [ROOT / "main.py", ROOT / "bootstrap.py", ROOT / 'run_tests.py'] + list((ROOT / "ykt").glob("*.py")):
             ast.parse(path.read_text("utf-8"), feature_version=(3, 9))
 
     def test_pinned_dependency_file(self):
         self.assertEqual(pinned_requirements(ROOT / "requirements.txt"),
-                         [("playwright", "1.56.0"), ("Pillow", "11.3.0"), ("pypdf", "6.21.4")])
+                         [("playwright", "1.56.0"), ("Pillow", "11.3.0"), ("pypdf", "6.21.4"), ("img2pdf", "0.6.3")])
 
     def test_corrupt_storage_is_not_accepted_as_a_valid_cache(self):
         path = self.directory / "bad.json"

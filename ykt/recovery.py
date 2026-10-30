@@ -2,9 +2,10 @@
 
 from .files import Manifest
 from .answer_images import ANSWER_FIELD, ANNOTATION_VERSION
+from .quiz_grid import field_for
 
 
-def unfinished(directory, owner, origin, layout="legacy", features=None, naming_mode='original', quiz_answers=False):
+def unfinished(directory, owner, origin, layout="legacy", features=None, naming_mode='original', quiz_answers=False, quiz_layout=None):
     manifest = Manifest(directory, owner, origin, layout=layout)
     data = manifest.read_existing()
     results = []
@@ -25,13 +26,13 @@ def unfinished(directory, owner, origin, layout="legacy", features=None, naming_
         pdf_unfinished = False
         pdf_status = None
         for feature, label in (("quiz_pdf", "习题PDF"), ("courseware_pdf", "课件PDF")):
-            field = ANSWER_FIELD if feature == 'quiz_pdf' and quiz_answers else feature
-            if field == ANSWER_FIELD:
+            field = field_for(dict(quiz_answers=quiz_answers,quiz_layout=quiz_layout)) if feature == 'quiz_pdf' else feature
+            if feature == 'quiz_pdf' and quiz_answers:
                 label = '带答案习题PDF'
             pdf = lesson.get(field)
             if pdf is not None and not isinstance(pdf, dict):
                 raise ValueError("PDF任务记录异常")
-            if (feature in features and field == ANSWER_FIELD and pdf and
+            if (feature in features and feature == 'quiz_pdf' and quiz_answers and pdf and
                     pdf.get('status') == 'complete' and pdf.get('annotation_version') != ANNOTATION_VERSION):
                 pdf_unfinished = True
                 pdf_status = 'pending'

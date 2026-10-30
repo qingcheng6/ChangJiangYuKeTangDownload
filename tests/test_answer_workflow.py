@@ -37,7 +37,7 @@ class AnswerWorkflowTests(unittest.TestCase):
 
     def tearDown(self):self.temp.cleanup()
 
-    def run_job(self,marked,images=True,positive=True,no_fetch=False,mode='original'):
+    def run_job(self,marked,images=True,positive=True,no_fetch=False,mode='original',grid=None):
         @contextmanager
         def browser(*args):yield None,Page()
         def extract(*args,answers=False):
@@ -59,7 +59,7 @@ class AnswerWorkflowTests(unittest.TestCase):
             stack.enter_context(patch('ykt.downloader.extract_lesson',side_effect=extract))
             stack.enter_context(patch('ykt.downloader._fetch',side_effect=AssertionError('Must skip') if no_fetch else lambda *args:self.jpeg))
             worker.start_download([self.task],self.root/'output',OWNER,
-                dict(quiz_images=images,quiz_pdf=True,courseware_pdf=False,quiz_answers=marked),
+                dict(quiz_images=images,quiz_pdf=True,courseware_pdf=False,quiz_answers=marked,quiz_layout=grid),
                 catalog=dict(courses=[dict(id='1',lessons=[self.task['lesson']])]))
             worker.thread.join(10);self.assertFalse(worker.running)
         events=[]

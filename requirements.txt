@@ -1,7 +1,9 @@
-# V2.0 release: validated pins; no new runtime dependencies in integration.
+# Validated application pins; img2pdf resolves its Python-compatible pikepdf dependency.
 # Python >=3.9; retain support for Python 3.9 instead of installing latest.
 playwright==1.56.0
 # Verify image content/format and reject truncated files (Python >=3.9).
 Pillow==11.3.0
 # Pure Python PDF writer/parser; supports Python 3.9+.
 pypdf==6.21.4
+# Lossless in-memory PNG page -> PDF conversion; Python >=3.9 compatible.
+img2pdf==0.6.3

@@ -18,6 +18,8 @@ from .files import FileProblem, image_info, safe_name, safe_prefixed_name, units
 from .naming import lesson_key, named
 from .answer_images import (ANNOTATION_VERSION, ANSWER_FIELD, annotated_sources,
                            annotated_fingerprint, trusted_answer)
+from .quiz_grid import (normalize_layout, field_for, layout_suffix, grid_fingerprint,
+                        write_grid_pdf, validate_grid_pdf)
 
 A4 = (595.275591, 841.889764)
 PDF_VERSION = 1
@@ -132,30 +134,44 @@ def validate_pdf(path, pages, stop=None, page_size=A4):
         return False
 
 
-def verified_pdf(manifest, metadata, stop=None, answers=False):
+def verified_pdf(manifest, metadata, stop=None, answers=False, grid=None):
     try:
         path = manifest.resolve(metadata["path"])
+        spec = normalize_layout(grid)
+        questions = metadata.get('question_count', metadata.get('pages'))
+        source_fingerprint = metadata.get('grid_source_fingerprint', metadata.get('fingerprint'))
+        grid_ok = metadata.get('grid_layout') is None
+        if spec is not None:
+            checks = metadata.get('grid_page_checks', [])
+            grid_ok = (metadata.get('grid_layout') == spec and type(questions) is int and questions > 0
+                and metadata.get('pages') == (questions+spec['count']-1)//spec['count']
+                and isinstance(checks,list) and len(checks) == metadata['pages']
+                and all(type(row.get('questions')) is int and 0<row['questions']<=spec['count'] for row in checks)
+                and sum(row['questions'] for row in checks) == questions
+                and grid_fingerprint(source_fingerprint,spec) == metadata.get('fingerprint'))
         variant_ok = metadata.get('variant', 'plain') == 'plain'
         if answers:
             mapping = metadata.get('answer_mapping')
             variant_ok = (metadata.get('variant') == 'answers' and metadata.get('annotation_version') == ANNOTATION_VERSION
                 and type(metadata.get('annotated_pages')) is int and metadata['annotated_pages'] >= 0
                 and type(metadata.get('missing_answers')) is int and metadata['missing_answers'] >= 0
-                and metadata['annotated_pages'] + metadata['missing_answers'] == metadata.get('pages')
-                and isinstance(mapping, list) and len(mapping) == metadata.get('pages')
+                and metadata['annotated_pages'] + metadata['missing_answers'] == questions
+                and isinstance(mapping, list) and len(mapping) == questions
                 and all(isinstance(row, dict) and (row.get('answer') is None or
                     trusted_answer(row))
                     for row in mapping)
                 and sum(row.get('answer') is not None for row in mapping) == metadata['annotated_pages']
                 and isinstance(metadata.get('source_fingerprint'),str)
                 and re.fullmatch(r'[0-9a-f]{64}',metadata['source_fingerprint']) is not None
-                and annotated_fingerprint(metadata['source_fingerprint'],mapping) == metadata.get('fingerprint'))
-        return (variant_ok and metadata["status"] == "complete" and metadata.get("version") == PDF_VERSION
+                and annotated_fingerprint(metadata['source_fingerprint'],mapping) == source_fingerprint)
+        return (grid_ok and variant_ok and metadata["status"] == "complete" and metadata.get("version") == PDF_VERSION
             and isinstance(metadata.get("fingerprint"), str) and re.fullmatch(r"[0-9a-f]{64}", metadata["fingerprint"]) is not None
             and type(metadata.get("pages")) is int and metadata["pages"] > 0
             and path.suffix.lower() == ".pdf" and path.stat().st_size == metadata["size"]
-            and sha_file(path, stop) == metadata["sha256"] and validate_pdf(path, metadata["pages"], stop))
-    except (OSError, FileProblem, KeyError, TypeError, ValueError):
+            and sha_file(path, stop) == metadata["sha256"] and
+            (validate_grid_pdf(path,metadata['pages'],spec,metadata['grid_page_checks'],stop) if spec is not None
+             else validate_pdf(path, metadata["pages"], stop)))
+    except (OSError, FileProblem, KeyError, TypeError, ValueError, AttributeError):
         return False
 
 
@@ -204,14 +220,15 @@ def pdf_path(manifest, task, lesson, metadata, suffix="_习题合集.pdf"):
     return candidate
 
 
-def merge_lesson(target, task, source, source_lesson, stop, emit, answers=False):
+def merge_lesson(target, task, source, source_lesson, stop, emit, answers=False, grid=None):
     """Caller holds the target Manifest lock; image status is never overwritten."""
     key = lesson_key(task)
     new = key not in target.data["lessons"]
     lesson = target.lesson(task)
     if new:
         lesson["status"] = "pdf_only"
-    metadata = lesson.setdefault(ANSWER_FIELD if answers else "quiz_pdf", {})
+    spec = normalize_layout(grid)
+    metadata = lesson.setdefault(field_for(dict(quiz_answers=answers,quiz_layout=spec)), {})
     result = dict(status="running", resource_state="available" if source_lesson.get("quiz_pages", 0) > 0 else "unknown",
                   error=None, error_type=None)
     try:
@@ -231,11 +248,14 @@ def merge_lesson(target, task, source, source_lesson, stop, emit, answers=False)
                 if row['answer'] is None:
                     emit('第{}页：无答案，未标注'.format(index))
         result["resource_state"] = "available"
-        if metadata.get("fingerprint") == fingerprint and verified_pdf(target, metadata, stop, answers=answers):
+        if spec is not None:
+            extra.update(grid_layout=spec,question_count=len(paths),grid_source_fingerprint=fingerprint)
+            fingerprint = grid_fingerprint(fingerprint,spec)
+        if metadata.get("fingerprint") == fingerprint and verified_pdf(target, metadata, stop, answers=answers,grid=spec):
             result.update(metadata, skipped=True, error=None, error_type=None)
             emit("PDF完整、页序与来源一致，已跳过：" + metadata['path'])
             return result
-        suffix = '_习题合集_带答案.pdf' if answers else '_习题合集.pdf'
+        suffix = ('_习题合集_带答案' if answers else '_习题合集') + layout_suffix(spec) + '.pdf'
         if metadata.get('path') and (metadata.get('variant', 'plain') != ('answers' if answers else 'plain') or
                 (answers and not metadata['path'].endswith(suffix))):
             raise FileProblem('习题PDF版本与任务路径不匹配，原文件未修改')
@@ -249,18 +269,26 @@ def merge_lesson(target, task, source, source_lesson, stop, emit, answers=False)
             target.resolve(str(temporary.relative_to(target.root)))
             metadata["attempts_last_run"] = attempt + 1
             try:
-                conversions = write_pdf(temporary, paths, stop)
-                if not validate_pdf(temporary, len(paths), stop):
+                if spec is None:
+                    conversions = write_pdf(temporary, paths, stop)
+                    pages = len(paths)
+                    valid = validate_pdf(temporary,pages,stop)
+                else:
+                    conversions, checks = write_grid_pdf(temporary,paths,stop,spec)
+                    pages = len(checks)
+                    metadata['grid_page_checks'] = checks
+                    valid = validate_grid_pdf(temporary,pages,spec,checks,stop)
+                if not valid:
                     raise FileProblem("PDF页数、页面或图片校验未通过")
                 check_stop(stop)
                 size, digest = temporary.stat().st_size, sha_file(temporary, stop)
                 os.replace(str(temporary), str(path))
-                metadata.update(status="complete", version=PDF_VERSION, pages=len(paths),
+                metadata.update(status="complete", version=PDF_VERSION, pages=pages,
                     size=size, sha256=digest, conversions=conversions, error=None, error_type=None)
                 result.update(metadata, skipped=False)
                 for message in conversions:
                     emit("转换记录：" + message)
-                emit("已保存习题合集，{}页：{}".format(len(paths), metadata['path']))
+                emit("已保存习题合集，{}题/{}页：{}".format(len(paths),pages, metadata['path']))
                 if answers:
                     emit('答案标注{}页，无答案{}页；原图未修改'.format(metadata['annotated_pages'],metadata['missing_answers']))
                 return result
@@ -268,6 +296,8 @@ def merge_lesson(target, task, source, source_lesson, stop, emit, answers=False)
                 raise
             except Exception as exc:
                 if attempt == 2:
+                    if spec is not None and isinstance(exc,FileProblem):
+                        raise FileProblem(str(exc)+'，已重试2次') from None
                     raise FileProblem("PDF生成、校验或本地写入失败（{}），已重试2次".format(type(exc).__name__)) from None
                 emit("PDF失败（{}），重试 {}/2".format(type(exc).__name__, attempt + 1))
                 if stop.wait(attempt + 1):

@@ -17,6 +17,7 @@ from .accounts import Accounts
 from .locking import BusyError
 from .tasks import RESOURCE_LABELS, resource_states
 from .naming import MODES
+from .quiz_grid import LAYOUT_CHOICES, normalize_layout, layout_suffix
 
 STATUS = {"complete": "扫描完成", "pending": "待扫描", "scanning": "扫描中",
           "failed": "扫描失败", "incomplete": "未完成"}
@@ -65,6 +66,10 @@ class CourseApp:
         self.export_quiz_pdf = tk.BooleanVar(value=False)
         self.export_courseware_pdf = tk.BooleanVar(value=False)
         self.export_answers = tk.BooleanVar(value=False)
+        self.paper_orientation = tk.StringVar(value='portrait')
+        self.grid_choice = tk.StringVar(value='单题一页')
+        self.grid_rows = tk.StringVar(value='2')
+        self.grid_columns = tk.StringVar(value='2')
         self.naming_mode = tk.StringVar(value='original')
         self.feature_info = tk.StringVar(value="习题图片：待执行 · 习题PDF：待执行 · 课件PDF：待执行")
         self._build()
@@ -192,6 +197,24 @@ class CourseApp:
                                            command=self._answers_changed)
         self.answer_check.pack(side='left', padx=(0,12))
         self.export_checks.append(self.answer_check)
+        grid_row = ttk.Frame(options)
+        grid_row.pack(fill='x', pady=(3,0))
+        ttk.Label(grid_row,text='纸张方向：').pack(side='left')
+        self.paper_radios=[]
+        for value,label in (('portrait','纵向'),('landscape','横向')):
+            radio=ttk.Radiobutton(grid_row,text=label,variable=self.paper_orientation,value=value)
+            radio.pack(side='left',padx=(0,10));self.paper_radios.append(radio)
+        ttk.Label(grid_row,text='每页排版：').pack(side='left')
+        self.grid_box=ttk.Combobox(grid_row,state='readonly',width=14,textvariable=self.grid_choice,
+                                 values=list(LAYOUT_CHOICES))
+        self.grid_box.pack(side='left',padx=(0,10))
+        self.grid_box.bind('<<ComboboxSelected>>',self._grid_changed)
+        self.grid_custom=ttk.Frame(grid_row)
+        self.grid_spins=[]
+        for label,variable in (('行数',self.grid_rows),('列数',self.grid_columns)):
+            ttk.Label(self.grid_custom,text=label).pack(side='left',padx=(0,4))
+            spin=ttk.Spinbox(self.grid_custom,from_=1,to=999,width=5,textvariable=variable)
+            spin.pack(side='left',padx=(0,8));self.grid_spins.append(spin)
         naming_row = ttk.Frame(options)
         naming_row.pack(fill='x', pady=(3, 0))
         ttk.Label(naming_row, text='命名规则：').pack(side='left')
@@ -415,6 +438,21 @@ class CourseApp:
             self.export_quiz_pdf.set(True)
         self._update_controls()
 
+    def _grid_changed(self,event=None):
+        self._assert_ui()
+        if self.grid_choice.get()=='自定义行列':
+            self.grid_custom.pack(side='left')
+        else:
+            self.grid_custom.pack_forget()
+
+    def _grid_request(self):
+        label=self.grid_choice.get()
+        if label not in LAYOUT_CHOICES:
+            raise ValueError('请选择有效的每页排版')
+        return normalize_layout(dict(orientation=self.paper_orientation.get(),
+            mode='custom' if label=='自定义行列' else 'preset', count=LAYOUT_CHOICES[label],
+            rows=self.grid_rows.get(),columns=self.grid_columns.get()))
+
     def choose_directory(self):
         directory = filedialog.askdirectory(parent=self.root, title="选择导出文件保存目录",
                                              initialdir=self.save_dir.get() or str(self.project_root),
@@ -626,6 +664,11 @@ class CourseApp:
         if not any((self.export_images.get(), self.export_quiz_pdf.get(), self.export_courseware_pdf.get())):
             self.status.set("至少选择一项导出功能")
             return
+        try:
+            quiz_layout=self._grid_request() if self.export_quiz_pdf.get() else None
+        except ValueError as exc:
+            self.status.set('习题PDF排版设置无效：'+str(exc))
+            return
         tasks = self.selection.tasks()
         if not tasks or not self.catalog or not self.catalog.get("owner_fingerprint"):
             self.status.set("请先扫描或读取缓存，并勾选目标课时")
@@ -648,11 +691,14 @@ class CourseApp:
             "开启（仅报告可访问静态页）" if self.export_courseware_pdf.get() else "关闭"))
         if self.export_answers.get():
             self._append_log('[答案] 仅采用网页原生正确/参考答案；不读取提交颜色或用得分反推')
+        if quiz_layout is not None:
+            self._append_log('[习题PDF排版] '+layout_suffix(quiz_layout).lstrip('_')+'；原图不变')
         directory = self.accounts.image_directory(self.account, self.save_dir.get(), layout=self.worker.layout)
         self.worker.set_naming_mode(self.naming_mode.get())
         self.worker.start_download(tasks, directory, self.catalog["owner_fingerprint"], options=dict(
             quiz_images=self.export_images.get(), quiz_pdf=self.export_quiz_pdf.get(),
-            courseware_pdf=self.export_courseware_pdf.get(), quiz_answers=self.export_answers.get()), catalog=self.catalog)
+            courseware_pdf=self.export_courseware_pdf.get(), quiz_answers=self.export_answers.get(),
+            quiz_layout=quiz_layout), catalog=self.catalog)
         self._update_controls()
 
     def resume(self):
@@ -685,12 +731,18 @@ class CourseApp:
             self.status.set("请先读取课程目录并选择原保存目录")
             return
         try:
+            quiz_layout=self._grid_request() if self.export_quiz_pdf.get() else None
+        except ValueError as exc:
+            self.status.set('习题PDF排版设置无效：'+str(exc))
+            return
+        try:
             rows = unfinished(self.accounts.image_directory(self.account, self.save_dir.get(), layout=self.worker.layout),
                               self.catalog["owner_fingerprint"], self.worker.origin,
                               layout=self.worker.layout, features=[f for f, enabled in (
                                   ("quiz_images", self.export_images.get()), ("quiz_pdf", self.export_quiz_pdf.get()),
                                   ("courseware_pdf", self.export_courseware_pdf.get())) if enabled], naming_mode=self.naming_mode.get(),
-                              quiz_answers=self.export_answers.get())
+                              quiz_answers=self.export_answers.get(),
+                              quiz_layout=quiz_layout)
         except FileNotFoundError:
             self.status.set("当前目录还没有此账号的下载任务清单")
             return
@@ -807,6 +859,9 @@ class CourseApp:
         self.manage_account_button.configure(state="normal" if idle and has_account else "disabled")
         for check in self.export_checks:
             check.configure(state="normal" if idle else "disabled")
+        self.grid_box.configure(state='readonly' if idle else 'disabled')
+        for widget in self.paper_radios+self.grid_spins:
+            widget.configure(state='normal' if idle else 'disabled')
         self.scan_button.configure(state="normal" if idle and has_account else "disabled")
         self.cache_button.configure(state="normal" if idle and has_account else "disabled")
         self.recovery_button.configure(state="normal" if idle else "disabled")

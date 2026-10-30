@@ -13,6 +13,7 @@ from .downloader import download
 from .files import FileProblem
 from .tasks import TaskLedger
 from .naming import NamingControl, NamingPlan, prepare_positions, valid_identifiers
+from .quiz_grid import normalize_layout
 
 
 class ScanWorker:
@@ -62,6 +63,12 @@ class ScanWorker:
             self.post("error", "[习题图片] 任务账号与当前本地账号绑定不一致，请重新扫描")
             return False
         options = dict(options) if options is not None else {"quiz_images": True, "quiz_pdf": False}
+        if options.get('quiz_pdf'):
+            try:
+                options['quiz_layout'] = normalize_layout(options.get('quiz_layout'))
+            except ValueError as exc:
+                self.post('error','习题PDF排版设置无效：'+str(exc))
+                return False
         if not any(options.get(f) for f in ("quiz_images", "quiz_pdf", "courseware_pdf")):
             self.post("error", "请至少选择一项导出功能")
             return False
