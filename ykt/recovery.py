@@ -1,7 +1,7 @@
 """Read persisted unfinished tasks; never treats this view as file verification."""
 
 from .files import Manifest
-from .answer_images import ANSWER_FIELD
+from .answer_images import ANSWER_FIELD, ANNOTATION_VERSION
 
 
 def unfinished(directory, owner, origin, layout="legacy", features=None, naming_mode='original', quiz_answers=False):
@@ -31,6 +31,11 @@ def unfinished(directory, owner, origin, layout="legacy", features=None, naming_
             pdf = lesson.get(field)
             if pdf is not None and not isinstance(pdf, dict):
                 raise ValueError("PDF任务记录异常")
+            if (feature in features and field == ANSWER_FIELD and pdf and
+                    pdf.get('status') == 'complete' and pdf.get('annotation_version') != ANNOTATION_VERSION):
+                pdf_unfinished = True
+                pdf_status = 'pending'
+                reasons.append('[{}] 答案策略已变更，请重新执行所选课时'.format(label))
             if feature in features and pdf and pdf.get("status") not in ("complete", "no_images"):
                 pdf_unfinished = True
                 pdf_status = pdf.get("status")

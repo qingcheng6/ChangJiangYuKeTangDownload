@@ -10,11 +10,12 @@ from unittest.mock import patch
 
 from PIL import Image
 from ykt.answer_images import ANSWER_FIELD
-from ykt.answer_images import infer_submission,ANNOTATION_VERSION,annotated_fingerprint
+from ykt.answer_images import ANNOTATION_VERSION,annotated_fingerprint
 from ykt.browser import Stopped
 from ykt.downloader import _atomic_image
 from ykt.files import Manifest, image_info
 from ykt.quiz_pdf import merge_lesson, verified_pdf
+from ykt.recovery import unfinished
 
 ORIGIN='https://changjiang.yuketang.cn'
 OWNER='a'*64
@@ -118,27 +119,33 @@ class AnswerPdfTests(unittest.TestCase):
         self.assertFalse(list((self.root/'output').rglob('*.pdf')))
         self.assertFalse(list((self.root/'output').rglob('习题图片')))
 
-    def test_inferred_pdf_revalidates_double_evidence_even_with_valid_file_hash(self):
+    def test_inferred_pdf_is_rejected_even_with_valid_file_hash_and_green_full_evidence(self):
         evidence=dict(result_text='AB',submitted='AB',classes=['pr12','green'],
                       color='rgb(8, 188, 114)',visible=True,score='2/2')
-        self.lesson['native_answers'][0].update(infer_submission(evidence))
         marked=self.merge(True)
         self.assertTrue(verified_pdf(self.target,marked,answers=True))
-        corrupt=deepcopy(marked);corrupt['answer_mapping'][0]['evidence']['score']='1/2'
+        corrupt=deepcopy(marked)
+        corrupt['answer_mapping'][0].update(source='submission_verified',confidence='verified_submission',evidence=evidence)
         corrupt['fingerprint']=annotated_fingerprint(corrupt['source_fingerprint'],corrupt['answer_mapping'])
         self.assertFalse(verified_pdf(self.target,corrupt,answers=True))
-        self.assertEqual(marked['answer_mapping'][0]['source'],'submission_verified')
+        self.assertEqual(marked['answer_mapping'][0]['source'],'correct_dom')
 
-    def test_previous_answer_policy_does_not_skip_new_dual_source_check(self):
+    def test_previous_answer_policies_do_not_skip_native_only_check(self):
         marked=self.merge(True)
-        with self.target as target:
-            target.data['lessons']['1:2:3'][ANSWER_FIELD]['annotation_version']=1
-            target.save()
-        old=dict(marked,annotation_version=1)
-        self.assertFalse(verified_pdf(self.target,old,answers=True))
-        refreshed=self.merge(True)
-        self.assertEqual(refreshed['annotation_version'],ANNOTATION_VERSION)
-        self.assertFalse(refreshed['skipped'])
+        for version in (1,2):
+            with self.target as target:
+                target.data['lessons']['1:2:3'][ANSWER_FIELD]['annotation_version']=version
+                target.save()
+            old=dict(marked,annotation_version=version)
+            self.assertFalse(verified_pdf(self.target,old,answers=True))
+            pending=unfinished(self.root/'output',OWNER,ORIGIN,layout='flat',features=['quiz_pdf'],quiz_answers=True)
+            self.assertEqual(len(pending),1)
+            self.assertEqual(pending[0]['status'],'pending')
+            self.assertIn('答案策略已变更',pending[0]['reasons'][0])
+            self.assertFalse(unfinished(self.root/'output',OWNER,ORIGIN,layout='flat',features=['quiz_pdf']))
+            refreshed=self.merge(True)
+            self.assertEqual(refreshed['annotation_version'],ANNOTATION_VERSION)
+            self.assertFalse(refreshed['skipped'])
 
 
 if __name__=='__main__':unittest.main()

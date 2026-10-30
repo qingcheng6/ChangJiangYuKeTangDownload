@@ -105,22 +105,6 @@ QUIZ_TABS = ".tab-wrap"
 QUIZ_TAB_NAME = "习题"
 QUIZ_ITEMS = ".slides-list .slide-item"
 QUIZ_IMAGE_REGION = ".slide-img"
-# Verified in the live 14-question report on 2026-10-30. The result is scoped
-# to this question, never a lesson total. Green/red text is a submitted result.
-QUIZ_ANSWER_RESULT = r"""e => {
- const visible=n=>n.getClientRects().length>0 && getComputedStyle(n).visibility==='visible';
- const regions=[...e.querySelectorAll('section.slide-exercise')].filter(visible);
- if(regions.length!==1)return null;
- const region=regions[0],results=[...region.querySelectorAll('span.pr12')].filter(visible);
- if(results.length!==1)return null;
- const result=results[0], text=region.innerText;
- const scores=text.split(/得分\s*[:：]/);
- const submitted=[...text.matchAll(/提交答案\s*[:：]\s*(.*?)\s*得分\s*[:：]/g)].map(m=>m[1]);
- return {result_text:result.innerText, classes:[...result.classList],
-   color:getComputedStyle(result).color, visible:true,
-   score:scores.length===2?scores[1].split(/用时/)[0].trim():null,
-   submitted:submitted.length===1?submitted[0]:null};
-}"""
 REPORT_API_PREFIX = "/api/v3/classroom-report/student/"
 REPORT_API_NAMES = ("review", "detail", "lesson-info")
 

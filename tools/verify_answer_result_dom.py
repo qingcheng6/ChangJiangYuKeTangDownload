@@ -1,4 +1,4 @@
-"""Local HTML boundary cases for the selector observed in the real report."""
+"""Local native-only HTML cases: submitted color/score never supplies answers."""
 import sys
 from pathlib import Path
 
@@ -11,8 +11,8 @@ from ykt.storage import write_json
 
 def main():
     cases=[
-        ('green_full','green','2/2','AB','AB','', 'AB'),
-        ('green_spaces','green','2 / 2','AB','AB','', 'AB'),
+        ('green_full','green','2/2','AB','AB','', None),
+        ('green_spaces','green','2 / 2','AB','AB','', None),
         ('green_partial','green','1/2','AB','AB','', None),
         ('red_full','red','2/2','AB','AB','', None),
         ('unknown_color','gray','2/2','AB','AB','', None),
@@ -21,7 +21,7 @@ def main():
         ('score_missing','green','','AB','AB','', None),
         ('score_invalid','green','NaN/NaN','AB','AB','', None),
         ('official_priority','red','0/2','AB','AB','<p>正确答案：C</p>', 'C'),
-        ('hidden_official','green','2/2','AB','AB','<p style="display:none">正确答案：C</p>', 'AB'),
+        ('hidden_official','green','2/2','AB','AB','<p style="display:none">正确答案：C</p>', None),
         ('hidden_result','green','2/2','AB','AB','', None),
         ('duplicate_result','green','2/2','AB','AB','', None),
     ]
@@ -44,7 +44,7 @@ def main():
                 assert decision['answer']==expected,(label,decision)
                 proof['cases'][label]=dict(answer=decision['answer'],status=decision['status'])
         finally:browser.close()
-    write_json(ROOT/'.local/answer_dual/dom_fixture_verified.json',proof)
+    write_json(ROOT/'.local/native_only/dom_fixture_verified.json',proof)
     print('LOCAL_RESULT_DOM_CASES_PASS',len(cases))
 
 

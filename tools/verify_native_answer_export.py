@@ -17,7 +17,7 @@ def main():
     accounts=Accounts(ROOT,'https://changjiang.yuketang.cn')
     account=next(a for a in accounts.rows if a['legacy'])
     task=read_json(ROOT/'.local/v2_stage3/page_probe.json')['task']
-    output=ROOT/'.local/answers/live_output'
+    output=ROOT/'.local/native_only/live_output'
     def products():
         return {str(p.relative_to(output)):(hashlib.sha256(p.read_bytes()).hexdigest(),p.stat().st_mtime_ns)
             for p in output.rglob('*') if p.suffix in ('.jpg','.png','.pdf')}
@@ -52,7 +52,7 @@ def main():
         assert not list(output.rglob('*.part'))
         proof['cases'][label]=dict(result=result,existing_products_unchanged=True,
             pages=lesson['quiz_pdf']['pages'],annotated_pages=lesson.get('quiz_pdf_answers',{}).get('annotated_pages'))
-        write_json(ROOT/'.local/answers/live_verified.json',proof)
+        write_json(ROOT/'.local/native_only/live_verified.json',proof)
         print('LIVE_NATIVE_ANSWER',label,'PASS',flush=True)
 
 

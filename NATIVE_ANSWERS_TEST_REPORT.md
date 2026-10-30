@@ -1,6 +1,6 @@
 # 原生答案标注：验证记录
 
-历史记录：仅标准答案策略。后续用户明确授权绿色选项+满分双重反推，当前结果请读`DUAL_ANSWERS_TEST_REPORT.md`。
+历史记录：首版仅标准答案策略，其后曾加入双源；用户最终确认恢复仅原生正确/参考答案，当前结果请读`NATIVE_ONLY_TEST_REPORT.md`。
 
 日期：2026-10-30；Windows 11 / Python 3.14.7，依赖与V2.3相同。基线Git `9f9ce53`，回退标签`before-native-answer-annotation`；配置/任务元数据本机备份`.local/answers/metadata_before.zip`（CRC通过，不打包浏览器资料）。不修改既有下载资源。
 
