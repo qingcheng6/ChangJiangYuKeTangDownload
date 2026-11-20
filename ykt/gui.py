@@ -202,7 +202,8 @@ class CourseApp:
         ttk.Label(grid_row,text='纸张方向：').pack(side='left')
         self.paper_radios=[]
         for value,label in (('portrait','纵向'),('landscape','横向')):
-            radio=ttk.Radiobutton(grid_row,text=label,variable=self.paper_orientation,value=value)
+            radio=ttk.Radiobutton(grid_row,text=label,variable=self.paper_orientation,value=value,
+                                  command=self._enable_quiz_pdf_for_layout)
             radio.pack(side='left',padx=(0,10));self.paper_radios.append(radio)
         ttk.Label(grid_row,text='每页排版：').pack(side='left')
         self.grid_box=ttk.Combobox(grid_row,state='readonly',width=14,textvariable=self.grid_choice,
@@ -444,6 +445,12 @@ class CourseApp:
             self.grid_custom.pack(side='left')
         else:
             self.grid_custom.pack_forget()
+        if event is not None:
+            self._enable_quiz_pdf_for_layout()
+
+    def _enable_quiz_pdf_for_layout(self):
+        self.export_quiz_pdf.set(True)
+        self._update_controls()
 
     def _grid_request(self):
         label=self.grid_choice.get()

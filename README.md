@@ -4,6 +4,8 @@ Windows 本地工具，使用 Python、Playwright 同步 API、Tkinter/ttk。用
 
 ## 习题PDF排版
 
+修改纸张方向或排版档位时，界面会自动勾选「习题合并PDF」。任务完成后，可按日志「已保存习题合集」中的完整路径打开本次文件，核对文件名末尾的排版标识及实际页数。
+
 “导出设置”新增“纸张方向”和“每页排版”。默认纵向、单题一页；可选每页2/4/6/8/12张，或“自定义行列”。选择自定义后显示行数、列数，须填写正整数；非法输入在启动前友好提示，不打开浏览器。设置在开始任务时固定，执行期间禁用，不改变命名模式从下一课时生效的原有行为。每次启动默认纵向单题一页；恢复其他配置时请重新选择相同排版。
 
 | 每页图片数 | 纵向（列×行） | 横向（列×行） |
@@ -194,7 +196,7 @@ py -3 -m venv .venv
 
 `browser/scanner/selectors`负责会话和扫描；`accounts/tasks`负责账号和功能状态；`selection/gui/worker`负责主线程界面和队列工作线程；`naming`负责命名快照与课时边界切换；`extractor/downloader/files/recovery`负责习题范围、下载、清单和恢复；`quiz_grid/quiz_pdf/pdf_work/quiz_export/courseware/resource_export`负责排版、可选PDF和串行组合。应用没有服务器或遥测上传。
 
-当前交付包包含77项不依赖私人账号数据的Windows回归：原37项基础/账号/目录/命名/课件测试，26项答案测试及14项网格/集成测试。使用统一入口逐测试在主线程回收Tk测试对象，避免旧测试循环引用被后续工作线程回收；不跳过任何用例：
+当前交付包包含79项不依赖私人账号数据的 Windows 回归，包括16项网格与集成测试。测试入口逐项在主线程回收 Tk 测试对象。
 
 ```powershell
 .venv\Scripts\python.exe run_tests.py
@@ -205,10 +207,10 @@ py -3 -m venv .venv
 
 ## V2.3本地交付包
 
-`dist/yuketang_resource_exporter_v2.3_grid.zip`及同名`.sha256`由明确白名单生成，旧单图/答案版/双源/V2.3/V1包保留。包中不含登录资料、课程缓存、图片/PDF或私人测试素材。将ZIP解压到可写的较短目录，再双击其中的`run.bat`；从已有项目升级时，应先备份原项目和`.local`，只更新代码、启动脚本、requirements及文档，保留原`.local`和下载目录。不要以删除浏览器资料的方式解决登录问题。
+`dist/yuketang_resource_exporter_v2.3_grid_fix.zip`及同名`.sha256`由明确白名单生成。将ZIP解压到可写的较短目录，再双击其中的`run.bat`。从已有项目升级时，先备份原项目和`.local`，再覆盖更新代码、启动脚本、requirements及文档，保留原`.local`和下载目录。
 
 ```powershell
-Get-FileHash .\yuketang_resource_exporter_v2.3_grid.zip -Algorithm SHA256
+Get-FileHash .\yuketang_resource_exporter_v2.3_grid_fix.zip -Algorithm SHA256
 ```
 
 将输出与附带的`.sha256`核对。当前专项范围以`GRID_TEST_REPORT.md`为准，答案策略见`NATIVE_ONLY_TEST_REPORT.md`；`NAMING_V23_TEST_REPORT.md`、`COURSEWARE_BATCH_TEST_REPORT.md`、`V21_TEST_REPORT.md`及V2.0 `TEST_REPORT.md`保留对应阶段历史。报告明确区分真实平台、真实内容离线、本地样例和故障测试。

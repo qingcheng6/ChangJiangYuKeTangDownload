@@ -170,6 +170,26 @@ class GridTests(unittest.TestCase):
         self.assertTrue(any('透明通道合成白底' in line for line in notes))
         self.assertEqual(source.read_bytes(),original)
 
+    def test_unexpected_page_groups_are_never_committed(self):
+        spec = normalize_layout(dict(count=4))
+        previous = self.merge(spec)
+        path = self.target.resolve(previous['path'])
+        original = path.read_bytes()
+        # Force regeneration, and simulate a writer reporting incorrect groups
+        # even though the overall page and question counts are both correct.
+        def wrong_groups(temporary, *_):
+            temporary.write_bytes(original)
+            return [], [dict(questions=3), dict(questions=4)]
+
+        with patch('ykt.quiz_pdf.verified_pdf', return_value=False), \
+                patch('ykt.quiz_pdf.write_grid_pdf', side_effect=wrong_groups), \
+                patch.object(Event, 'wait', return_value=False):
+            result = self.merge(spec)
+        self.assertEqual(result['status'], 'failed')
+        self.assertIn('实际习题分页与所选网格不符', result['error'])
+        self.assertEqual(path.read_bytes(), original)
+        self.assertFalse(list(path.parent.glob('*.part')))
+
     def test_invalid_worker_settings_do_not_start_browser_thread(self):
         worker=ScanWorker(ORIGIN,self.root/'site',account_id='local',expected_owner=OWNER)
         self.assertFalse(worker.start_download([self.task],self.root/'out',OWNER,

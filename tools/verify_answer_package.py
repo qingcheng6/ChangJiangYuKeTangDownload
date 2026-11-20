@@ -10,7 +10,7 @@ ROOT=Path(__file__).resolve().parents[1]
 
 
 def main():
-    archive_path=ROOT/'dist/yuketang_resource_exporter_v2.3_grid.zip'
+    archive_path=ROOT/'dist/yuketang_resource_exporter_v2.3_grid_fix.zip'
     expected=archive_path.with_suffix('.sha256').read_text('ascii').split()[0]
     assert hashlib.sha256(archive_path.read_bytes()).hexdigest()==expected
     with tempfile.TemporaryDirectory(prefix='ykt_answers_release_') as temporary:
@@ -21,7 +21,7 @@ def main():
                 assert not Path(item.filename).is_absolute() and '..' not in Path(item.filename).parts
                 assert archive.read(item)==(ROOT/item.filename).read_bytes()
             archive.extractall(destination)
-        log=ROOT/'.local/grid/package_tests.log'
+        log=ROOT/'.local/grid/fix_package_tests.log'
         with log.open('w',encoding='utf-8') as stream:
             result=subprocess.run([sys.executable,str(destination/'run_tests.py')],
                                   cwd=destination,stdout=stream,stderr=subprocess.STDOUT,timeout=120)

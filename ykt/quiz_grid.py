@@ -107,6 +107,13 @@ def grid_fingerprint(source, spec):
     return hashlib.sha256(json.dumps(dict(source=source, layout=spec), sort_keys=True).encode()).hexdigest()
 
 
+def page_question_counts(question_count, spec):
+    """Expected row-major page boundaries, including the short final page."""
+    capacity = spec['count']
+    full_pages, remaining = divmod(question_count, capacity)
+    return [capacity] * full_pages + ([remaining] if remaining else [])
+
+
 def png_idat(data):
     """img2pdf embeds RGB PNG IDAT bytes directly; retain their exact digest."""
     if data[:8] != b'\x89PNG\r\n\x1a\n':

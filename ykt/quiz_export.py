@@ -64,7 +64,7 @@ def export_quizzes(context, page, origin, request, site_dir, account_id, layout,
                     old = formal.data["lessons"].get(key, {}).get(field, {})
                     if verified_pdf(formal, old, stop, answers=answers,grid=spec):
                         feature_done(task, "quiz_pdf", dict(old, resource_state="available", skipped=True))
-                        emit(prefix + "PDF完整且任务已完成，跳过；未创建临时图片：" + old['path'])
+                        emit(prefix + "PDF完整且任务已完成，跳过；未创建临时图片：" + str(formal.resolve(old['path'])))
                         result["completed"] += 1
                         result["success"] += 1
                         progress(dict(result))

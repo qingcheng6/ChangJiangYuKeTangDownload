@@ -14,7 +14,7 @@ def main():
                                       "tests/test_answer_images.py", "tests/test_answer_pdf.py", "tests/test_answer_workflow.py", "tests/test_answer_inference.py",
                                       "tests/test_quiz_grid.py", "tests/test_grid_workflow.py")]
     files += sorted((ROOT / "ykt").glob("*.py"))
-    output = ROOT / "dist/yuketang_resource_exporter_v2.3_grid.zip"
+    output = ROOT / "dist/yuketang_resource_exporter_v2.3_grid_fix.zip"
     output.parent.mkdir(exist_ok=True)
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
         for file in files:

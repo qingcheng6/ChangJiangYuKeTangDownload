@@ -18,7 +18,7 @@ from .files import FileProblem, image_info, safe_name, safe_prefixed_name, units
 from .naming import lesson_key, named
 from .answer_images import (ANNOTATION_VERSION, ANSWER_FIELD, annotated_sources,
                            annotated_fingerprint, trusted_answer)
-from .quiz_grid import (normalize_layout, field_for, layout_suffix, grid_fingerprint,
+from .quiz_grid import (normalize_layout, field_for, layout_suffix, grid_fingerprint, page_question_counts,
                         write_grid_pdf, validate_grid_pdf)
 
 A4 = (595.275591, 841.889764)
@@ -144,10 +144,9 @@ def verified_pdf(manifest, metadata, stop=None, answers=False, grid=None):
         if spec is not None:
             checks = metadata.get('grid_page_checks', [])
             grid_ok = (metadata.get('grid_layout') == spec and type(questions) is int and questions > 0
-                and metadata.get('pages') == (questions+spec['count']-1)//spec['count']
                 and isinstance(checks,list) and len(checks) == metadata['pages']
-                and all(type(row.get('questions')) is int and 0<row['questions']<=spec['count'] for row in checks)
-                and sum(row['questions'] for row in checks) == questions
+                and [row['questions'] for row in checks] == page_question_counts(questions,spec)
+                and path.name.endswith(quiz_pdf_suffix(answers,spec))
                 and grid_fingerprint(source_fingerprint,spec) == metadata.get('fingerprint'))
         variant_ok = metadata.get('variant', 'plain') == 'plain'
         if answers:
@@ -220,6 +219,11 @@ def pdf_path(manifest, task, lesson, metadata, suffix="_习题合集.pdf"):
     return candidate
 
 
+def quiz_pdf_suffix(answers, spec):
+    base = '_习题合集_带答案' if answers else '_习题合集'
+    return base + layout_suffix(spec) + '.pdf'
+
+
 def merge_lesson(target, task, source, source_lesson, stop, emit, answers=False, grid=None):
     """Caller holds the target Manifest lock; image status is never overwritten."""
     key = lesson_key(task)
@@ -253,11 +257,11 @@ def merge_lesson(target, task, source, source_lesson, stop, emit, answers=False,
             fingerprint = grid_fingerprint(fingerprint,spec)
         if metadata.get("fingerprint") == fingerprint and verified_pdf(target, metadata, stop, answers=answers,grid=spec):
             result.update(metadata, skipped=True, error=None, error_type=None)
-            emit("PDF完整、页序与来源一致，已跳过：" + metadata['path'])
+            emit("PDF完整、页序与来源一致，已跳过：" + str(target.resolve(metadata['path'])))
             return result
-        suffix = ('_习题合集_带答案' if answers else '_习题合集') + layout_suffix(spec) + '.pdf'
+        suffix = quiz_pdf_suffix(answers, spec)
         if metadata.get('path') and (metadata.get('variant', 'plain') != ('answers' if answers else 'plain') or
-                (answers and not metadata['path'].endswith(suffix))):
+                ((answers or spec is not None) and not metadata['path'].endswith(suffix))):
             raise FileProblem('习题PDF版本与任务路径不匹配，原文件未修改')
         path = pdf_path(target, task, lesson, metadata, suffix=suffix)
         metadata.update(path=str(path.relative_to(target.root)), status="pending", fingerprint=fingerprint, **extra)
@@ -275,7 +279,10 @@ def merge_lesson(target, task, source, source_lesson, stop, emit, answers=False,
                     valid = validate_pdf(temporary,pages,stop)
                 else:
                     conversions, checks = write_grid_pdf(temporary,paths,stop,spec)
-                    pages = len(checks)
+                    expected_counts = page_question_counts(len(paths), spec)
+                    if [row['questions'] for row in checks] != expected_counts:
+                        raise FileProblem('实际习题分页与所选网格不符')
+                    pages = len(expected_counts)
                     metadata['grid_page_checks'] = checks
                     valid = validate_grid_pdf(temporary,pages,spec,checks,stop)
                 if not valid:
@@ -288,7 +295,7 @@ def merge_lesson(target, task, source, source_lesson, stop, emit, answers=False,
                 result.update(metadata, skipped=False)
                 for message in conversions:
                     emit("转换记录：" + message)
-                emit("已保存习题合集，{}题/{}页：{}".format(len(paths),pages, metadata['path']))
+                emit("已保存习题合集，{}题/{}页：{}".format(len(paths),pages,path))
                 if answers:
                     emit('答案标注{}页，无答案{}页；原图未修改'.format(metadata['annotated_pages'],metadata['missing_answers']))
                 return result
