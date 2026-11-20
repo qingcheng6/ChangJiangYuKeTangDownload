@@ -7,7 +7,7 @@ from .files import Manifest
 from .pdf_work import PdfWork
 from .quiz_pdf import merge_lesson, verified_pdf
 from .naming import lesson_key
-from .quiz_grid import field_for, layout_suffix, normalize_layout
+from .quiz_grid import courseware_field, field_for, layout_suffix, normalize_layout
 
 
 def _record_pending_pdfs(request, origin, layout, features):
@@ -26,7 +26,8 @@ def _record_pending_pdfs(request, origin, layout, features):
                 lesson["status"] = "pdf_only"
             changed |= new
             for feature in features:
-                field = field_for(request['options']) if feature == 'quiz_pdf' else feature
+                field = (field_for(request['options']) if feature == 'quiz_pdf'
+                         else courseware_field(request['options'].get('quiz_layout')))
                 if field not in lesson:
                     lesson[field] = dict(status="pending", error=None, error_type=None)
                     changed = True

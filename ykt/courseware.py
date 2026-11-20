@@ -14,6 +14,8 @@ from .files import FileProblem, Manifest, image_info
 from .pdf_work import PdfWork
 from .quiz_pdf import A4, write_pdf, validate_pdf, sha_file, pdf_path
 from .naming import lesson_key, base_lesson_key
+from .quiz_grid import (courseware_field, courseware_layout, grid_fingerprint, layout_suffix,
+                        matching_page_groups, validate_grid_pdf, write_grid_pdf)
 
 
 def ordered_slides(slides):
@@ -153,30 +155,45 @@ PURPOSE = 'courseware_pdf_temporary_images'
 COURSEWARE_VERSION = 2
 
 
-def verified_courseware(manifest, meta, stop, task=None):
+def verified_courseware(manifest, meta, stop, task=None, grid=None):
     try:
         path = manifest.resolve(meta['path'])
         bound = meta.get('lesson_key')
         expected = None if task is None else task['course_id']+':'+task['lesson']['id']+':'+task['lesson']['courseware_id']
-        return (isinstance(bound, str) and len(bound.split(':')) == 3 and all(x.isdigit() for x in bound.split(':'))
+        spec = courseware_layout(grid)
+        if meta.get('grid_layout') != spec:
+            return False
+        basic_valid = (isinstance(bound, str) and len(bound.split(':')) == 3 and all(x.isdigit() for x in bound.split(':'))
             and (expected is None or bound == expected)
             and meta['status']=='complete' and meta['version']==COURSEWARE_VERSION and meta['scope']=='report_static_pages'
-            and type(meta['pages']) is int and meta['pages']>0 and len(meta['sequence'])==meta['pages']
+            and type(meta['pages']) is int and meta['pages']>0
             and path.suffix.lower()=='.pdf' and path.stat().st_size==meta['size']
-            and sha_file(path,stop)==meta['sha256'] and validate_pdf(path,meta['pages'],stop,page_size=LANDSCAPE))
+            and sha_file(path,stop)==meta['sha256'])
+        if not basic_valid:
+            return False
+        pages = meta['pages']
+        slides = len(meta['sequence'])
+        if spec is None:
+            return slides == pages and validate_pdf(path,pages,stop,page_size=LANDSCAPE)
+        checks = meta['grid_page_checks']
+        suffix = '_课件' + layout_suffix(spec, unit='张') + '.pdf'
+        return (path.name.endswith(suffix) and matching_page_groups(checks,pages,slides,spec)
+                and validate_grid_pdf(path,pages,spec,checks,stop))
     except (KeyError,TypeError,ValueError,OSError,FileProblem):
         return False
 
 
-def export_courseware(context,page,origin,task,directory,owner,site_dir,account_id,layout,stop,emit):
+def export_courseware(context,page,origin,task,directory,owner,site_dir,account_id,layout,stop,emit,grid=None):
     """One authorized lesson; failures remain independent of quiz products."""
+    spec = courseware_layout(grid)
+    suffix = '_课件' + layout_suffix(spec, unit='张') + '.pdf'
     with Manifest(directory,owner,origin,layout=layout) as target:
         key=lesson_key(task)
         bound_key=base_lesson_key(task)
         new=key not in target.data['lessons']
         lesson=target.lesson(task)
         if new: lesson['status']='pdf_only'
-        meta=lesson.setdefault('courseware_pdf',{})
+        meta=lesson.setdefault(courseware_field(spec),{})
         if not isinstance(meta, dict):
             raise FileProblem('课件PDF记录损坏，原清单已保留，请检查后重试')
         result=dict(status='running',resource_state='unknown',error=None,error_type=None)
@@ -184,17 +201,23 @@ def export_courseware(context,page,origin,task,directory,owner,site_dir,account_
             resources=extract_courseware(page,origin,task,stop,emit)
             sequence=[dict(slide_id=r['slide_id'],page=r['page'],resource_id=resource_key(r['candidates'][0])) for r in resources]
             fingerprint=hashlib.sha256(json.dumps(dict(version=COURSEWARE_VERSION,lesson_key=bound_key,sequence=sequence),sort_keys=True).encode()).hexdigest()
+            if spec is not None:
+                fingerprint = grid_fingerprint(fingerprint, spec)
             if not resources:
                 meta.update(status='no_images',pages=0,error=None,error_type=None)
                 result.update(status='no_images',resource_state='absent')
                 return result
             result['resource_state']='available'
-            if meta.get('fingerprint')==fingerprint and verified_courseware(target,meta,stop,task):
+            if meta.get('fingerprint')==fingerprint and verified_courseware(target,meta,stop,task,grid=spec):
                 emit('已核对页面范围和本地PDF，完整跳过：' + meta['path'])
                 return dict(meta,resource_state='available',skipped=True)
-            path=pdf_path(target,task,lesson,meta,suffix='_课件.pdf')
+            if spec is not None and meta.get('path') and not meta['path'].endswith(suffix):
+                raise FileProblem('课件PDF记录的路径与所选排版不符')
+            path=pdf_path(target,task,lesson,meta,suffix=suffix)
             meta.update(status='running',path=str(path.relative_to(target.root)),fingerprint=fingerprint,
                         scope='report_static_pages',sequence=sequence,lesson_key=bound_key)
+            if spec is not None:
+                meta['grid_layout'] = spec
             target.save()
             with PdfWork(site_dir,account_id,task,owner,origin,purpose=PURPOSE) as work:
                 paths=[]
@@ -235,22 +258,33 @@ def export_courseware(context,page,origin,task,directory,owner,site_dir,account_
                     target.resolve(str(temporary.relative_to(target.root)))
                     meta['attempts_last_run']=attempt+1
                     try:
-                        conversions=write_pdf(temporary,paths,stop,page_size=LANDSCAPE)
-                        if not validate_pdf(temporary,len(sequence),stop,page_size=LANDSCAPE):
+                        if spec is None:
+                            conversions=write_pdf(temporary,paths,stop,page_size=LANDSCAPE)
+                            pages = len(sequence)
+                            valid = validate_pdf(temporary,pages,stop,page_size=LANDSCAPE)
+                        else:
+                            conversions, checks = write_grid_pdf(temporary,paths,stop,spec)
+                            pages = len(checks)
+                            valid = (matching_page_groups(checks,pages,len(sequence),spec)
+                                     and validate_grid_pdf(temporary,pages,spec,checks,stop))
+                            meta['grid_page_checks'] = checks
+                        if not valid:
                             raise FileProblem('课件PDF页数、页面或图像验证失败')
                         digest=sha_file(temporary,stop);size=temporary.stat().st_size
                         check_stop(stop)
                         os.replace(str(temporary),str(path))
-                        meta.update(status='complete',version=COURSEWARE_VERSION,pages=len(sequence),size=size,sha256=digest,
+                        meta.update(status='complete',version=COURSEWARE_VERSION,pages=pages,size=size,sha256=digest,
                                     conversions=conversions,error=None,error_type=None)
                         target.save();work.discard=True
                         for note in conversions:
                             emit('转换记录：'+note)
-                        emit('已保存课件PDF，{}页；仅包含报告已提供的静态页：{}'.format(len(sequence), meta['path']))
+                        emit('已保存课件PDF，{}张/{}页：{}'.format(len(sequence), pages, path))
                         return dict(meta,resource_state='available',skipped=False)
                     except Stopped: raise
                     except Exception as exc:
-                        if attempt==2: raise FileProblem('课件PDF生成或保存失败（{}），已重试2次'.format(type(exc).__name__)) from None
+                        if attempt==2:
+                            reason = str(exc) if isinstance(exc, FileProblem) else '课件PDF生成或保存失败（{}）'.format(type(exc).__name__)
+                            raise FileProblem(reason+'，已重试2次') from None
                         emit('课件PDF失败，重试{}/2'.format(attempt+1))
                         if stop.wait(attempt+1):check_stop(stop)
                     finally:

@@ -18,7 +18,7 @@ from .files import FileProblem, image_info, safe_name, safe_prefixed_name, units
 from .naming import lesson_key, named
 from .answer_images import (ANNOTATION_VERSION, ANSWER_FIELD, annotated_sources,
                            annotated_fingerprint, trusted_answer)
-from .quiz_grid import (normalize_layout, field_for, layout_suffix, grid_fingerprint, page_question_counts,
+from .quiz_grid import (normalize_layout, field_for, layout_suffix, grid_fingerprint, matching_page_groups,
                         write_grid_pdf, validate_grid_pdf)
 
 A4 = (595.275591, 841.889764)
@@ -144,8 +144,7 @@ def verified_pdf(manifest, metadata, stop=None, answers=False, grid=None):
         if spec is not None:
             checks = metadata.get('grid_page_checks', [])
             grid_ok = (metadata.get('grid_layout') == spec and type(questions) is int and questions > 0
-                and isinstance(checks,list) and len(checks) == metadata['pages']
-                and [row['questions'] for row in checks] == page_question_counts(questions,spec)
+                and matching_page_groups(checks,metadata['pages'],questions,spec)
                 and path.name.endswith(quiz_pdf_suffix(answers,spec))
                 and grid_fingerprint(source_fingerprint,spec) == metadata.get('fingerprint'))
         variant_ok = metadata.get('variant', 'plain') == 'plain'
@@ -280,10 +279,9 @@ def merge_lesson(target, task, source, source_lesson, stop, emit, answers=False,
                     valid = validate_pdf(temporary,pages,stop)
                 else:
                     conversions, checks = write_grid_pdf(temporary,paths,stop,spec)
-                    expected_counts = page_question_counts(len(paths), spec)
-                    if [row['questions'] for row in checks] != expected_counts:
+                    pages = len(checks)
+                    if not matching_page_groups(checks,pages,len(paths),spec):
                         raise FileProblem('实际习题分页与所选网格不符')
-                    pages = len(expected_counts)
                     metadata['grid_page_checks'] = checks
                     valid = validate_grid_pdf(temporary,pages,spec,checks,stop)
                 if not valid:
