@@ -1,0 +1,11 @@
+# Python 虚拟环境与缓存
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+
+# 本地会话、页面快照与构建产物
+.local/
+html/
+dist/
