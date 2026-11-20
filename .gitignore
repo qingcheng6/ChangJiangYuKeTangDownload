@@ -4,6 +4,12 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .coverage
+.coverage.*
+
+# 本地环境变量与凭据配置
+.env
+.env.*
+!.env.example
 
 # 本地会话、页面快照与构建产物
 .local/
