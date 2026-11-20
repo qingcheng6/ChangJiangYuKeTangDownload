@@ -207,9 +207,8 @@ class CourseApp:
         export_row = ttk.Frame(options)
         export_row.pack(fill='x')
         self.export_checks = []
-        for label, variable in (("下载习题图片", self.export_images),
-                                ("习题合并PDF", self.export_quiz_pdf),
-                                ("课件导出PDF", self.export_courseware_pdf)):
+        for label, variable in (("课件导出PDF", self.export_courseware_pdf),
+                                ("习题合并PDF", self.export_quiz_pdf)):
             check = ttk.Checkbutton(export_row, text=label, variable=variable, command=self._update_controls)
             check.pack(side="left", padx=(0, 12))
             self.export_checks.append(check)
@@ -217,19 +216,20 @@ class CourseApp:
                                            command=self._answers_changed)
         self.answer_check.pack(side='left', padx=(0,12))
         self.export_checks.append(self.answer_check)
+        ttk.Button(export_row, text='更多设置…', command=self._toggle_more).pack(side='right')
         grid_row = ttk.Frame(options)
         grid_row.pack(fill='x', pady=(3,0))
         ttk.Label(grid_row,text='纸张方向：').pack(side='left')
         self.paper_radios=[]
         for value,label in (('portrait','纵向'),('landscape','横向')):
-            radio=ttk.Radiobutton(grid_row,text=label,variable=self.paper_orientation,value=value,
-                                  command=self._enable_quiz_pdf_for_layout)
+            radio=ttk.Radiobutton(grid_row,text=label,variable=self.paper_orientation,value=value)
             radio.pack(side='left',padx=(0,10));self.paper_radios.append(radio)
         ttk.Label(grid_row,text='每页排版：').pack(side='left')
         self.grid_box=ttk.Combobox(grid_row,state='readonly',width=14,textvariable=self.grid_choice,
                                  values=list(LAYOUT_CHOICES))
         self.grid_box.pack(side='left',padx=(0,10))
         self.grid_box.bind('<<ComboboxSelected>>',self._grid_changed)
+        ttk.Label(options, text='纸张与排版同时作用于课件PDF与习题PDF').pack(anchor='w')
         self.grid_custom=ttk.Frame(grid_row)
         self.grid_spins=[]
         for label,variable in (('行数',self.grid_rows),('列数',self.grid_columns)):
@@ -245,6 +245,11 @@ class CourseApp:
                                     command=self._naming_changed)
             radio.pack(side='left', padx=(0, 12))
             self.naming_radios.append(radio)
+        self.more_export = ttk.Frame(options)
+        image_check = ttk.Checkbutton(self.more_export, text='下载习题图片', variable=self.export_images,
+                                      command=self._update_controls)
+        image_check.pack(side='left')
+        self.export_checks.append(image_check)
         directory = ttk.Frame(outer)
         directory.grid(row=7, column=0, sticky="ew")
         ttk.Label(directory, text="保存目录").pack(side="left")
@@ -467,12 +472,12 @@ class CourseApp:
             self.grid_custom.pack(side='left')
         else:
             self.grid_custom.pack_forget()
-        if event is not None:
-            self._enable_quiz_pdf_for_layout()
 
-    def _enable_quiz_pdf_for_layout(self):
-        self.export_quiz_pdf.set(True)
-        self._update_controls()
+    def _toggle_more(self):
+        if self.more_export.winfo_manager():
+            self.more_export.pack_forget()
+        else:
+            self.more_export.pack(fill='x', pady=(3,0))
 
     def _grid_request(self):
         label=self.grid_choice.get()
@@ -730,9 +735,9 @@ class CourseApp:
             self.status.set("至少选择一项导出功能")
             return
         try:
-            quiz_layout=self._grid_request() if self.export_quiz_pdf.get() else None
+            quiz_layout=self._grid_request() if self.export_quiz_pdf.get() or self.export_courseware_pdf.get() else None
         except ValueError as exc:
-            self.status.set('习题PDF排版设置无效：'+str(exc))
+            self.status.set('PDF排版设置无效：'+str(exc))
             return
         tasks = self.selection.tasks()
         if not tasks or not self.catalog or not self.catalog.get("owner_fingerprint"):
@@ -757,7 +762,7 @@ class CourseApp:
         if self.export_answers.get():
             self._append_log('[答案] 仅采用网页原生正确/参考答案；不读取提交颜色或用得分反推')
         if quiz_layout is not None:
-            self._append_log('[习题PDF排版] '+layout_suffix(quiz_layout).lstrip('_')+'；原图不变')
+            self._append_log('[公共PDF排版] '+layout_suffix(quiz_layout, unit='张').lstrip('_'))
         directory = self.accounts.image_directory(self.account, self.save_dir.get(), layout=self.worker.layout)
         self.worker.set_naming_mode(self.naming_mode.get())
         self.worker.start_download(tasks, directory, self.catalog["owner_fingerprint"], options=dict(
@@ -796,9 +801,9 @@ class CourseApp:
             self.status.set("请先读取课程目录并选择原保存目录")
             return
         try:
-            quiz_layout=self._grid_request() if self.export_quiz_pdf.get() else None
+            quiz_layout=self._grid_request() if self.export_quiz_pdf.get() or self.export_courseware_pdf.get() else None
         except ValueError as exc:
-            self.status.set('习题PDF排版设置无效：'+str(exc))
+            self.status.set('PDF排版设置无效：'+str(exc))
             return
         try:
             rows = unfinished(self.accounts.image_directory(self.account, self.save_dir.get(), layout=self.worker.layout),
@@ -896,6 +901,9 @@ class CourseApp:
         elif kind == "download_result":
             self.status.set({"complete": "下载处理完成", "partial": "下载结束，部分课时失败",
                              "stopped": "下载已停止"}.get(data["status"], "下载任务结束"))
+            if (self.export_quiz_pdf.get() and data["status"] == "complete"
+                    and data['total'] > 0 and data['no_images'] == data['total']):
+                self.status.set("所选课时均无习题图片，本次未生成习题PDF")
             label = "临时处理图片" if self.export_quiz_pdf.get() and not self.export_images.get() else "保存图片"
             self._append_log("{}：{} {} 张，校验跳过 {} 张，图片失败 {} 张，无图片课时 {} 个".format(
                 self.status.get(), label, data["downloaded"], data["skipped"], data["image_failed"], data["no_images"]))

@@ -12,9 +12,10 @@ def main():
                                       "V2_STAGE0_BASELINE.md", "V2_STAGE1.md", "V2_STAGE2.md", "V2_STAGE3.md",
                                       "tests/test_delivery.py", "tests/test_v2_delivery.py", "tests/test_layout_v21.py", "tests/test_courseware_batch.py", "tests/test_naming_v23.py",
                                       "tests/test_answer_images.py", "tests/test_answer_pdf.py", "tests/test_answer_workflow.py", "tests/test_answer_inference.py",
-                                      "tests/test_quiz_grid.py", "tests/test_grid_workflow.py", "tests/test_term_tree.py")]
+                                      "tests/test_quiz_grid.py", "tests/test_grid_workflow.py", "tests/test_term_tree.py",
+                                      "tests/test_courseware_grid.py")]
     files += sorted((ROOT / "ykt").glob("*.py"))
-    output = ROOT / "dist/yuketang_resource_exporter_v2.3_terms.zip"
+    output = ROOT / "dist/yuketang_resource_exporter_v2.3_shared_grid.zip"
     output.parent.mkdir(exist_ok=True)
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
         for file in files:

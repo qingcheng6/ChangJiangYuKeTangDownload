@@ -35,7 +35,8 @@ def export_resources(context,page,origin,request,site_dir,account_id,layout,stop
                 successful=quiz['failed']==0
             prefix='[课件PDF] {} / {}：'.format(' '.join(task['course_name'].split()),' '.join(task['lesson']['name'].split()))
             courseware=export_courseware(context,page,origin,task,request['directory'],request['owner'],
-                                        site_dir,account_id,layout,stop,lambda message:emit(prefix+message))
+                                        site_dir,account_id,layout,stop,lambda message:emit(prefix+message),
+                                        grid=request['options'].get('quiz_layout'))
             feature_done(task,'courseware_pdf',courseware)
             successful=successful and courseware['status'] in ('complete','no_images')
             result['completed']+=1

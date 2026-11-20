@@ -94,10 +94,23 @@ def field_for(options):
     return base if spec is None else base + '|grid|' + layout_id(spec)
 
 
-def layout_suffix(spec):
+def courseware_layout(value):
+    """The single-page preset retains the original landscape courseware PDF."""
+    spec = normalize_layout(value)
+    if spec is not None and spec['mode'] == 'preset' and spec['count'] == 1:
+        return None
+    return spec
+
+
+def courseware_field(value):
+    spec = courseware_layout(value)
+    return 'courseware_pdf' if spec is None else 'courseware_pdf|grid|' + layout_id(spec)
+
+
+def layout_suffix(spec, unit='题'):
     if spec is None:
         return ''
-    text = '_{}{}题每页'.format('竖版' if spec['orientation'] == 'portrait' else '横版', spec['count'])
+    text = '_{}{}{}每页'.format('竖版' if spec['orientation'] == 'portrait' else '横版', spec['count'], unit)
     if spec['mode'] == 'custom':
         text += '_{}行{}列'.format(spec['rows'], spec['columns'])
     return text
@@ -112,6 +125,12 @@ def page_question_counts(question_count, spec):
     capacity = spec['count']
     full_pages, remaining = divmod(question_count, capacity)
     return [capacity] * full_pages + ([remaining] if remaining else [])
+
+
+def matching_page_groups(checks, pages, source_count, spec):
+    return (isinstance(checks, list) and len(checks) == pages
+            and all(isinstance(row, dict) for row in checks)
+            and [row.get('questions') for row in checks] == page_question_counts(source_count, spec))
 
 
 def png_idat(data):

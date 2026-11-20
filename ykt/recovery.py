@@ -2,7 +2,7 @@
 
 from .files import Manifest
 from .answer_images import ANSWER_FIELD, ANNOTATION_VERSION
-from .quiz_grid import field_for
+from .quiz_grid import courseware_field, field_for
 
 
 def unfinished(directory, owner, origin, layout="legacy", features=None, naming_mode='original', quiz_answers=False, quiz_layout=None):
@@ -26,7 +26,8 @@ def unfinished(directory, owner, origin, layout="legacy", features=None, naming_
         pdf_unfinished = False
         pdf_status = None
         for feature, label in (("quiz_pdf", "习题PDF"), ("courseware_pdf", "课件PDF")):
-            field = field_for(dict(quiz_answers=quiz_answers,quiz_layout=quiz_layout)) if feature == 'quiz_pdf' else feature
+            field = (field_for(dict(quiz_answers=quiz_answers,quiz_layout=quiz_layout)) if feature == 'quiz_pdf'
+                     else courseware_field(quiz_layout))
             if feature == 'quiz_pdf' and quiz_answers:
                 label = '带答案习题PDF'
             pdf = lesson.get(field)
