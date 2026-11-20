@@ -257,7 +257,8 @@ def merge_lesson(target, task, source, source_lesson, stop, emit, answers=False,
             fingerprint = grid_fingerprint(fingerprint,spec)
         if metadata.get("fingerprint") == fingerprint and verified_pdf(target, metadata, stop, answers=answers,grid=spec):
             result.update(metadata, skipped=True, error=None, error_type=None)
-            emit("PDF完整、页序与来源一致，已跳过：" + str(target.resolve(metadata['path'])))
+            emit("已校验同排版合集，{}题/{}页，跳过：{}".format(
+                len(paths), metadata['pages'], target.resolve(metadata['path'])))
             return result
         suffix = quiz_pdf_suffix(answers, spec)
         if metadata.get('path') and (metadata.get('variant', 'plain') != ('answers' if answers else 'plain') or

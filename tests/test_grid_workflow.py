@@ -1,10 +1,13 @@
 """Real serial worker with local site fixtures; independent grid task/cache keys."""
 import gc
+import io
 import tkinter as tk
 import unittest
 from contextlib import ExitStack, contextmanager
 from unittest.mock import patch
 
+from PIL import Image
+from pikepdf import Pdf, PdfImage
 from pypdf import PdfReader
 import test_answer_workflow as fixtures
 from ykt.answer_images import read_native_answer
@@ -56,6 +59,13 @@ class GridWorkerTests(unittest.TestCase):
         output.mkdir()
         task = self.flow.task
         task['lesson']['created_at'] = 1792080000000
+        colors = [(175 + i*5, 225 - i*3, 238 - i*2) for i in range(14)]
+        images = []
+        for color in colors:
+            image = Image.new('RGB', (640, 480), color)
+            stream = io.BytesIO()
+            image.save(stream, format='PNG')
+            images.append(stream.getvalue())
 
         @contextmanager
         def browser(*args):
@@ -64,7 +74,7 @@ class GridWorkerTests(unittest.TestCase):
         def extract(*args, answers=False):
             items = []
             for i in range(14):
-                item = dict(candidates=['https://local.invalid/same-image'], slide_id=str(i+10), page=i+1)
+                item = dict(candidates=[f'https://local.invalid/{i}'], slide_id=str(i+10), page=i+1)
                 if answers:
                     item['native_answer'] = read_native_answer('正确答案：AB' if i == 0 else '')
                 items.append(item)
@@ -91,17 +101,18 @@ class GridWorkerTests(unittest.TestCase):
                 stack.enter_context(patch('ykt.worker.open_browser', side_effect=browser))
                 for module in ('downloader', 'quiz_export'):
                     stack.enter_context(patch('ykt.'+module+'.verify_account'))
-                stack.enter_context(patch('ykt.downloader.extract_lesson', side_effect=extract))
-                stack.enter_context(patch('ykt.downloader._fetch', return_value=self.flow.jpeg))
+                extract_mock = stack.enter_context(patch('ykt.downloader.extract_lesson', side_effect=extract))
+                stack.enter_context(patch('ykt.downloader._fetch',
+                                          side_effect=lambda *args: images[int(args[2].rsplit('/',1)[-1])]))
                 for index, (orientation,count) in enumerate(cases):
                     with self.subTest(orientation=orientation,count=count):
                         mode = ('original','date','sequence')[index%3]
                         app.naming_mode.set(mode)
                         app.export_quiz_pdf.set(False)
                         app._update_controls()
-                        app.paper_radios[orientation == 'landscape'].invoke()
+                        app.export_checks[1].invoke()
                         self.assertTrue(app.export_quiz_pdf.get())
-                        app.export_quiz_pdf.set(False)
+                        app.paper_radios[orientation == 'landscape'].invoke()
                         app.grid_box.set('自定义行列' if count == 9 else '单题一页' if count == 1 else f'每页{count}张')
                         app.grid_rows.set('3')
                         app.grid_columns.set('3')
@@ -134,17 +145,71 @@ class GridWorkerTests(unittest.TestCase):
                         self.assertEqual(reader.pages[0].mediabox.width > reader.pages[0].mediabox.height,
                                          orientation == 'landscape')
                         self.assertTrue(verified_pdf(manifest,pdf,answers=answers,grid=spec))
+                        with Pdf.open(path) as visual_pdf:
+                            for page_number, page in enumerate(visual_pdf.pages):
+                                embedded, = page.images.values()
+                                raster = PdfImage(embedded).as_pil_image().convert('RGB')
+                                raster.thumbnail((260,260), Image.Resampling.NEAREST)
+                                expected = colors[page_number*count:(page_number+1)*count]
+                                self.assert_page_tiles(raster, expected, colors, spec['columns'],
+                                                       answers and page_number == 0)
                         if answers:
                             self.assertEqual(pdf['annotated_pages'],1)
-                            first_page = reader.pages[0].images[0].image.convert('RGB')
-                            # The fixture question is entirely white, so dark
-                            # pixels here verify the answer survived composition.
-                            dark = first_page.convert('L').point(lambda level: 255 if level<70 else 0)
-                            self.assertIsNotNone(dark.getbbox())
+                # A no-image attempt at a different layout must explain why no
+                # new PDF appeared, even with older PDFs in the same course.
+                existing = set(output.rglob('*.pdf'))
+                app._update_controls()
+                app.paper_radios[1].invoke()
+                app.grid_box.set('单题一页')
+                app.grid_box.event_generate('<<ComboboxSelected>>')
+                extract_mock.side_effect = None
+                extract_mock.return_value = dict(resources=[], pages=0, unsupported=[])
+                app.download_button.invoke()
+                app.worker.thread.join(15)
+                self.assertFalse(app.worker.running)
+                events = []
+                while not app.worker.events.empty():
+                    events.append(app.worker.events.get_nowait())
+                self.assertTrue(any(kind == 'log' and '本次未生成横版1题每页合集' in msg
+                                    for kind, msg in events), events)
+                self.assertEqual(set(output.rglob('*.pdf')), existing)
+                result = next(data for kind,data in events if kind == 'download_result')
+                app._handle_event('download_result', result)
+                self.assertIn('本次未生成习题PDF', app.status.get())
         finally:
             window.destroy()
             del app, window
             gc.collect()
+
+    def assert_page_tiles(self, raster, expected, colors, columns, marked):
+        positions = {color: [] for color in colors}
+        dark = []
+        for index, color in enumerate(raster.getdata()):
+            point = (index % raster.width, index // raster.width)
+            if color in positions:
+                positions[color].append(point)
+            elif max(color) < 70:
+                dark.append(point)
+        self.assertEqual([color for color, points in positions.items() if points], expected)
+        boxes = []
+        for color in expected:
+            xs, ys = zip(*positions[color])
+            bounds = (min(xs), min(ys), max(xs), max(ys))
+            width = bounds[2] - bounds[0] + 1
+            height = bounds[3] - bounds[1] + 1
+            self.assertAlmostEqual(width / height, 640 / 480, delta=0.1)
+            boxes.append(bounds)
+        for start in range(0,len(boxes),columns):
+            row = boxes[start:start+columns]
+            self.assertTrue(all(a[2] < b[0] for a,b in zip(row,row[1:])))
+            if start:
+                self.assertLess(max(box[3] for box in boxes[start-columns:start]), min(box[1] for box in row))
+        if marked:
+            self.assertTrue(dark)
+            first = boxes[0]
+            self.assertTrue(all(first[0] <= x <= first[2]+1 and y > first[3] for x,y in dark))
+        else:
+            self.assertFalse(dark)
 
 
 if __name__=='__main__':unittest.main()

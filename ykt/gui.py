@@ -896,6 +896,9 @@ class CourseApp:
         elif kind == "download_result":
             self.status.set({"complete": "下载处理完成", "partial": "下载结束，部分课时失败",
                              "stopped": "下载已停止"}.get(data["status"], "下载任务结束"))
+            if (self.export_quiz_pdf.get() and data["status"] == "complete"
+                    and data['total'] > 0 and data['no_images'] == data['total']):
+                self.status.set("所选课时均无习题图片，本次未生成习题PDF")
             label = "临时处理图片" if self.export_quiz_pdf.get() and not self.export_images.get() else "保存图片"
             self._append_log("{}：{} {} 张，校验跳过 {} 张，图片失败 {} 张，无图片课时 {} 个".format(
                 self.status.get(), label, data["downloaded"], data["skipped"], data["image_failed"], data["no_images"]))

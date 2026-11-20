@@ -8,6 +8,8 @@ Windows 本地工具，使用 Python、Playwright 同步 API、Tkinter/ttk。用
 
 修改纸张方向或排版档位时，界面会自动勾选「习题合并PDF」。任务完成后，可按日志「已保存习题合集」中的完整路径打开本次文件，核对文件名末尾的排版标识及实际页数。
 
+每个课时的日志会区分新生成、同排版文件通过校验后跳过，以及无可导出题图。若所有选中课时均无题图，界面会明确显示「本次未生成习题PDF」。已有的单题合集仍可从原目录打开。
+
 “导出设置”新增“纸张方向”和“每页排版”。默认纵向、单题一页；可选每页2/4/6/8/12张，或“自定义行列”。选择自定义后显示行数、列数，须填写正整数；非法输入在启动前友好提示，不打开浏览器。设置在开始任务时固定，执行期间禁用，不改变命名模式从下一课时生效的原有行为。每次启动默认纵向单题一页；恢复其他配置时请重新选择相同排版。
 
 | 每页图片数 | 纵向（列×行） | 横向（列×行） |
@@ -211,10 +213,10 @@ py -3 -m venv .venv
 
 ## V2.3本地交付包
 
-`dist/yuketang_resource_exporter_v2.3_terms.zip`及同名`.sha256`由明确白名单生成。将ZIP解压到可写的较短目录，再双击其中的`run.bat`。从已有项目升级时，先备份原项目和`.local`，再覆盖更新代码、启动脚本、requirements及文档，保留原`.local`和下载目录。
+`dist/yuketang_resource_exporter_v2.3_grid_recheck.zip`及同名`.sha256`由明确白名单生成。将ZIP解压到可写的较短目录，再双击其中的`run.bat`。从已有项目升级时，先备份原项目和`.local`，再覆盖更新代码、启动脚本、requirements及文档，保留原`.local`和下载目录。
 
 ```powershell
-Get-FileHash .\yuketang_resource_exporter_v2.3_terms.zip -Algorithm SHA256
+Get-FileHash .\yuketang_resource_exporter_v2.3_grid_recheck.zip -Algorithm SHA256
 ```
 
 将输出与附带的`.sha256`核对。当前专项范围以`GRID_TEST_REPORT.md`为准，答案策略见`NATIVE_ONLY_TEST_REPORT.md`；`NAMING_V23_TEST_REPORT.md`、`COURSEWARE_BATCH_TEST_REPORT.md`、`V21_TEST_REPORT.md`及V2.0 `TEST_REPORT.md`保留对应阶段历史。报告明确区分真实平台、真实内容离线、本地样例和故障测试。
