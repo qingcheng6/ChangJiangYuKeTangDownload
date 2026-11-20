@@ -45,8 +45,11 @@ class CourseSelection:
         return "checked" if count == len(keys) else "partial"
 
     def toggle_course(self, course_id: str) -> None:
-        keys = self._keys[course_id]
-        if self.course_state(course_id) == "checked":
+        self.toggle_courses((course_id,))
+
+    def toggle_courses(self, course_ids) -> None:
+        keys = {key for course_id in course_ids for key in self._keys[course_id]}
+        if keys <= self._desired:
             self._desired.difference_update(keys)
         else:
             self._desired.update(keys)

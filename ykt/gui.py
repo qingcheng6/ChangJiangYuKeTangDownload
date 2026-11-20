@@ -1,5 +1,6 @@
 """Tk/ttk desktop view. All widget access belongs to the Tk main thread."""
 
+import re
 import tkinter as tk
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -23,6 +24,21 @@ STATUS = {"complete": "扫描完成", "pending": "待扫描", "scanning": "扫�
           "failed": "扫描失败", "incomplete": "未完成"}
 RESULT_STATUS = {"complete": "扫描完成", "partial": "部分失败", "stopped": "已停止",
                  "running": "扫描中", "needs_human": "等待人工处理"}
+TERM_PATTERN = re.compile(r"(?<![0-9])([0-9]{4}[春秋])")
+UNGROUPED_TERM = "未分类学期"
+
+
+def courses_by_term(courses):
+    groups = {}
+    for course in courses:
+        matches = set(TERM_PATTERN.findall(course.get("class_name") or ""))
+        term = matches.pop() if len(matches) == 1 else UNGROUPED_TERM
+        groups.setdefault(term, []).append(course)
+    terms = sorted((term for term in groups if term != UNGROUPED_TERM),
+                   key=lambda term: (int(term[:4]), term[-1] == "秋"), reverse=True)
+    if UNGROUPED_TERM in groups:
+        terms.append(UNGROUPED_TERM)
+    return {term: groups[term] for term in terms}
 
 
 class CourseApp:
@@ -44,6 +60,8 @@ class CourseApp:
         self.resources = {}
         self.selection = CourseSelection()
         self.nodes = {}
+        self.term_courses = {}
+        self.tree_open_overrides = {}
         self.catalog = None
         self.closing = False
         self.waiting_human = False
@@ -152,7 +170,7 @@ class CourseApp:
         self.tree = ttk.Treeview(tree_frame, columns=("selected", "status", "detail", "quiz", "courseware"),
                                  displaycolumns=("selected", "status", "quiz", "courseware", "detail"),
                                  selectmode="browse", show="tree headings")
-        self.tree.heading("#0", text="课程 / 课时（点击方框勾选，空格切换）", anchor="w")
+        self.tree.heading("#0", text="学期 / 课程 / 课时（点击方框勾选，空格切换）", anchor="w")
         self.tree.heading("selected", text="已选 / 课时")
         self.tree.heading("status", text="扫描状态")
         self.tree.heading("detail", text="班级 / 上课时间（北京时间）", anchor="w")
@@ -174,6 +192,8 @@ class CourseApp:
         self.images = self._checkbox_images()
         self.tree.bind("<Button-1>", self._tree_click)
         self.tree.bind("<space>", self._tree_space)
+        self.tree.bind("<<TreeviewOpen>>", lambda event: self._remember_tree_open(True))
+        self.tree.bind("<<TreeviewClose>>", lambda event: self._remember_tree_open(False))
         choose = ttk.Frame(outer)
         choose.grid(row=5, column=0, sticky="ew", pady=7)
         ttk.Button(choose, text="全部勾选", command=self.select_all).pack(side="left")
@@ -316,6 +336,8 @@ class CourseApp:
         self.selection = CourseSelection()
         self.resources = {}
         self.nodes.clear()
+        self.term_courses.clear()
+        self.tree_open_overrides.clear()
         self.tree.delete(*self.tree.get_children())
         self.selected_info.set("已勾选 0 个课时")
         self.catalog_info.set("尚无课程，请扫描课程")
@@ -532,6 +554,10 @@ class CourseApp:
             note, label, len(result["courses"]), lessons))
 
     @staticmethod
+    def term_iid(term):
+        return "term:" + term
+
+    @staticmethod
     def course_iid(course_id):
         return "course:" + str(course_id)
 
@@ -547,31 +573,27 @@ class CourseApp:
         except (KeyError, TypeError, ValueError, OverflowError, OSError):
             return "—"
 
+    def _remember_tree_open(self, opened):
+        iid = self.tree.focus()
+        if iid in self.nodes and self.nodes[iid][0] != "lesson":
+            self.tree_open_overrides[iid] = opened
+
     def _render_tree(self):
-        opened = {iid for iid in self.tree.get_children() if self.tree.item(iid, "open")}
         focus = self.tree.focus()
         yview = self.tree.yview()
-        initial = not self.tree.get_children()
         self.tree.delete(*self.tree.get_children())
         self.nodes.clear()
-        for index, course in enumerate(self.selection.courses):
-            cid = str(course["id"])
-            iid = self.course_iid(cid)
-            self.nodes[iid] = ("course", cid)
-            name = course["name"] + ("  [归档]" if course.get("archived") else "")
-            self.tree.insert("", "end", iid=iid, text=name,
-                             open=iid in opened or (initial and index == 0),
-                             values=("", STATUS.get(course["status"], "未知"),
-                                     course.get("class_name", "")))
-            for lesson in course["lessons"]:
-                key = (cid, str(lesson["id"]))
-                liid = self.lesson_iid(key)
-                self.nodes[liid] = ("lesson", key)
-                self.tree.insert(iid, "end", iid=liid, text=lesson["name"],
-                                 values=("", "进行中" if lesson.get("is_finished") is False else "",
-                                         self._lesson_time(lesson),
-                                         self._resource_label(cid, str(lesson["id"]), "quiz_images"),
-                                         self._resource_label(cid, str(lesson["id"]), "courseware_pdf")))
+        groups = courses_by_term(self.selection.courses)
+        self.term_courses = {term: [str(course['id']) for course in courses]
+                             for term, courses in groups.items()}
+        latest = next(iter(groups), None)
+        for term, courses in groups.items():
+            iid = self.term_iid(term)
+            self.nodes[iid] = ("term", term)
+            self.tree.insert("", "end", iid=iid, text=term,
+                             open=self.tree_open_overrides.get(iid, term == latest))
+            for course in courses:
+                self._insert_course(iid, course)
         self._refresh_checks()
         if focus in self.nodes:
             self.tree.focus(focus)
@@ -579,9 +601,28 @@ class CourseApp:
         if yview:
             self.tree.yview_moveto(yview[0])
 
+    def _insert_course(self, parent, course):
+        cid = str(course["id"])
+        iid = self.course_iid(cid)
+        self.nodes[iid] = ("course", cid)
+        name = course["name"] + ("  [归档]" if course.get("archived") else "")
+        self.tree.insert(parent, "end", iid=iid, text=name,
+                         open=self.tree_open_overrides.get(iid, False),
+                         values=("", STATUS.get(course["status"], "未知"), course.get("class_name") or ""))
+        for lesson in course["lessons"]:
+            key = (cid, str(lesson["id"]))
+            liid = self.lesson_iid(key)
+            self.nodes[liid] = ("lesson", key)
+            self.tree.insert(iid, "end", iid=liid, text=lesson["name"],
+                             values=("", "进行中" if lesson.get("is_finished") is False else "",
+                                     self._lesson_time(lesson),
+                                     self._resource_label(cid, str(lesson["id"]), "quiz_images"),
+                                     self._resource_label(cid, str(lesson["id"]), "courseware_pdf")))
+
     def _refresh_checks(self):
         self._assert_ui()
         selected = self.selection.selected
+        counts = {}
         for course in self.selection.courses:
             cid = str(course["id"])
             count = 0
@@ -596,7 +637,20 @@ class CourseApp:
             iid = self.course_iid(cid)
             self.tree.item(iid, image=self.images[state])
             self.tree.set(iid, "selected", "{} / {}".format(count, len(course["lessons"])))
-        self.selected_info.set("已勾选 {} 个课时".format(len(self.selection.selected)))
+            counts[cid] = (count, len(course["lessons"]))
+        for term, course_ids in self.term_courses.items():
+            checked = sum(counts[cid][0] for cid in course_ids)
+            total = sum(counts[cid][1] for cid in course_ids)
+            if not total:
+                state = "empty"
+            elif checked == total:
+                state = "checked"
+            else:
+                state = "partial" if checked else "unchecked"
+            iid = self.term_iid(term)
+            self.tree.item(iid, image=self.images[state])
+            self.tree.set(iid, "selected", "{} / {}".format(checked, total))
+        self.selected_info.set("已勾选 {} 个课时".format(len(selected)))
         self._update_controls()
 
     def toggle(self, iid):
@@ -605,7 +659,9 @@ class CourseApp:
             self.status.set("下载任务已固定，请停止或等待结束后修改勾选")
             return
         kind, key = self.nodes[iid]
-        if kind == "course":
+        if kind == "term":
+            self.selection.toggle_courses(self.term_courses[key])
+        elif kind == "course":
             self.selection.toggle_course(key)
         else:
             self.selection.toggle_lesson(key)
@@ -639,8 +695,10 @@ class CourseApp:
         self._refresh_checks()
 
     def expand_all(self, opened):
-        for iid in self.tree.get_children():
-            self.tree.item(iid, open=opened)
+        for iid, (kind, _) in self.nodes.items():
+            if kind != "lesson":
+                self.tree.item(iid, open=opened)
+                self.tree_open_overrides[iid] = opened
 
     def start_scan(self):
         self._assert_ui()

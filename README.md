@@ -116,7 +116,9 @@ CLI默认使用最后选择的账号，也可传`--account <完整本地ID>`。�
 1. 安装 **64 位 CPython 3.9+**，包含 Tcl/Tk 和 Python Launcher。将项目解压到可写、较短的本地路径。
 2. 双击 **`run.bat`**。首次启动会创建项目内 `.venv`、安装 `requirements.txt` 固定版本依赖，并尝试安装 Chromium，需联网。以后依赖齐全时直接启动。
 3. 点击“扫描课程”，在打开的独立浏览器里使用平台原有方式手动登录；不要把密码或验证码交给程序或他人。程序根据实际课程页面确认登录。
-4. 展开课程树，点击方框或按空格勾选课时。课程方框可全选/清空其子项；横线表示部分选中。选择保存目录后点击“开始下载”。
+4. 展开「学期 → 课程 → 课时」列表，点击方框或按空格勾选。学期和课程方框可全选或清空其下课时。横线表示部分选中。选择保存目录后点击“开始下载”。
+
+课程列表从现有班级字段识别 `2026秋`、`2026春` 等学期。按年份倒序，同年秋季在春季之前。缺少学期标识或同时出现多个不同标识的课程放入列表底部的「未分类学期」。打开列表时默认展开最新学期，只有未分类时展开该组。展开全部、折叠全部、全部勾选和未完成课时筛选均适用于整个列表。旧课程缓存会直接显示为三级树，习题和课件沿用课程目录。
 5. 点击“停止任务”安全结束；再次选择同一目录、勾选课时下载即可恢复。点击“失败 / 未完成…”查看原因，使用“仅勾选列表课时”后点击“开始下载”重试。课时已不在缓存时，先重新扫描。
 
 默认适配 **长江雨课堂 `https://changjiang.yuketang.cn`**。内置 Chromium 优先，启动失败自动尝试已安装的 Chrome。当前验收机器内置 Chromium 有 Windows SideBySide 启动错误，实际使用 Chrome 成功；若同样遇到此问题，请使用已安装的 Chrome。界面空闲时不会自行打开浏览器。
@@ -196,7 +198,7 @@ py -3 -m venv .venv
 
 `browser/scanner/selectors`负责会话和扫描；`accounts/tasks`负责账号和功能状态；`selection/gui/worker`负责主线程界面和队列工作线程；`naming`负责命名快照与课时边界切换；`extractor/downloader/files/recovery`负责习题范围、下载、清单和恢复；`quiz_grid/quiz_pdf/pdf_work/quiz_export/courseware/resource_export`负责排版、可选PDF和串行组合。应用没有服务器或遥测上传。
 
-当前交付包包含79项不依赖私人账号数据的 Windows 回归，包括16项网格与集成测试。测试入口逐项在主线程回收 Tk 测试对象。
+当前交付包包含81项不依赖私人账号数据的 Windows 回归。测试入口逐项在主线程回收 Tk 测试对象。
 
 ```powershell
 .venv\Scripts\python.exe run_tests.py
@@ -207,10 +209,10 @@ py -3 -m venv .venv
 
 ## V2.3本地交付包
 
-`dist/yuketang_resource_exporter_v2.3_grid_fix.zip`及同名`.sha256`由明确白名单生成。将ZIP解压到可写的较短目录，再双击其中的`run.bat`。从已有项目升级时，先备份原项目和`.local`，再覆盖更新代码、启动脚本、requirements及文档，保留原`.local`和下载目录。
+`dist/yuketang_resource_exporter_v2.3_terms.zip`及同名`.sha256`由明确白名单生成。将ZIP解压到可写的较短目录，再双击其中的`run.bat`。从已有项目升级时，先备份原项目和`.local`，再覆盖更新代码、启动脚本、requirements及文档，保留原`.local`和下载目录。
 
 ```powershell
-Get-FileHash .\yuketang_resource_exporter_v2.3_grid_fix.zip -Algorithm SHA256
+Get-FileHash .\yuketang_resource_exporter_v2.3_terms.zip -Algorithm SHA256
 ```
 
 将输出与附带的`.sha256`核对。当前专项范围以`GRID_TEST_REPORT.md`为准，答案策略见`NATIVE_ONLY_TEST_REPORT.md`；`NAMING_V23_TEST_REPORT.md`、`COURSEWARE_BATCH_TEST_REPORT.md`、`V21_TEST_REPORT.md`及V2.0 `TEST_REPORT.md`保留对应阶段历史。报告明确区分真实平台、真实内容离线、本地样例和故障测试。

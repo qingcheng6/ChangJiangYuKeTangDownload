@@ -78,9 +78,11 @@ class GridWorkerTests(unittest.TestCase):
             app.worker.expected_owner = fixtures.OWNER
             app.worker.stop_event = fixtures.LocalStop()
             app.catalog = dict(owner_fingerprint=fixtures.OWNER,
-                               courses=[dict(id='1', name=task['course_name'], lessons=[task['lesson']])])
+                               courses=[dict(id='1', name=task['course_name'], class_name='2026秋-测试班',
+                                             status='complete', lessons=[task['lesson']])])
             app.selection.replace(app.catalog)
-            app.selection.toggle_lesson(('1', '2'))
+            app._render_tree()
+            app.toggle(app.term_iid('2026秋'))
             app.save_dir.set(str(output))
             app.export_images.set(False)
             cases = [(orientation, count) for orientation in ('portrait', 'landscape') for count in (2,4,6,8,12)]
@@ -123,6 +125,7 @@ class GridWorkerTests(unittest.TestCase):
                         lesson = next(x for x in manifest.read_existing()['lessons'].values() if field in x)
                         pdf = lesson[field]
                         path = manifest.resolve(pdf['path'])
+                        self.assertEqual(path.parent, output.resolve() / task['course_name'])
                         self.assertTrue(path.name.endswith(layout_suffix(spec)+'.pdf'))
                         self.assertEqual([count]* (14//count) + ([14%count] if 14%count else []),
                                          [row['questions'] for row in pdf['grid_page_checks']])

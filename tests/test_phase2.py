@@ -46,9 +46,13 @@ class SelectionTests(unittest.TestCase):
                          [lessons[0]["id"], lessons[-1]["id"]])
         self.model.replace(read_json(SITE / "courses.json"))
         self.assertEqual(len(self.model.selected), 2)
-        siblings = [c for c in self.data["courses"] if c["name"] == "高等数学A1"]
-        self.assertGreater(len(siblings), 1)
-        self.assertEqual(len({c["id"] for c in siblings}), len(siblings))
+        # Two same-name classes must be independent even when the live cache
+        # no longer happens to contain duplicates.
+        sibling = dict(self.course, id='same-name-sibling')
+        self.model.replace(dict(self.data, courses=[self.course, sibling]))
+        self.model.toggle_course(sibling['id'])
+        self.assertEqual(self.model.course_state(sibling['id']), 'checked')
+        self.assertEqual(sum(cid == self.cid for cid, _ in self.model.selected), 2)
 
     def test_empty_courses_cannot_add_phantom_lessons(self):
         empty = next(c for c in self.data["courses"] if not c["lessons"])
@@ -93,7 +97,10 @@ class TkTests(unittest.TestCase):
 
     def test_real_cache_tree_and_checkbox_rendering(self):
         app = self.app
-        self.assertEqual(len(app.tree.get_children()), len(app.catalog["courses"]))
+        terms = app.tree.get_children()
+        course_nodes = {iid for term in terms for iid in app.tree.get_children(term)}
+        self.assertEqual(course_nodes, {app.course_iid(c['id']) for c in app.catalog['courses']})
+        self.assertEqual([iid for iid in terms if app.tree.item(iid, 'open')], list(terms[:1]))
         course = next(c for c in app.catalog["courses"] if len(c["lessons"]) > 1)
         cid = str(course["id"])
         key = (cid, str(course["lessons"][0]["id"]))
